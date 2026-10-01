@@ -1,5 +1,11 @@
 import sql from 'mssql';
-import { ConflictError, NotFoundError, ValidationError, type AppError } from '../core/errors.js';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+  type AppError,
+} from '../core/errors.js';
 
 /**
  * Códigos THROW de los Stored Procedures (ver db/scripts/05_procedures.sql).
@@ -7,6 +13,7 @@ import { ConflictError, NotFoundError, ValidationError, type AppError } from '..
  */
 const BUSINESS_ERRORS: Readonly<Record<number, (message: string) => AppError>> = {
   50400: (message) => new ValidationError(message),
+  50403: (message) => new ForbiddenError(message),
   50404: (message) => new NotFoundError(message),
   50409: (message) => new ConflictError(message),
 };

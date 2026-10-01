@@ -1,6 +1,7 @@
 export type ErrorCode =
   | 'VALIDATION_ERROR'
   | 'UNAUTHORIZED'
+  | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'PAYLOAD_TOO_LARGE'
@@ -34,6 +35,12 @@ export class ValidationError extends AppError {
 export class UnauthorizedError extends AppError {
   constructor(message = 'No autenticado.') {
     super(401, 'UNAUTHORIZED', message);
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message = 'No tienes permisos para realizar esta acción.') {
+    super(403, 'FORBIDDEN', message);
   }
 }
 

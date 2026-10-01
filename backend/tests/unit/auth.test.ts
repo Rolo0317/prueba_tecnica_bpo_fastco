@@ -5,7 +5,7 @@ import { AuthService } from '../../src/modules/auth/auth.service.js';
 import { durationToSeconds, JwtTokenService } from '../../src/modules/auth/token.service.js';
 import { FakePasswordHasher, InMemoryUserRepository, TEST_AUTH_CONFIG } from '../helpers/fakes.js';
 
-const user = { id: 7, username: 'agente', fullName: 'Agente Uno' };
+const user = { id: 7, username: 'agente', fullName: 'Agente Uno', role: 'AGENT' as const };
 
 describe('durationToSeconds', () => {
   it.each([
@@ -29,11 +29,15 @@ describe('JwtTokenService', () => {
   });
 
   it('rechaza un token firmado con otro secreto', () => {
-    const forged = jwt.sign({ username: 'x', name: 'x' }, 'otro-secreto-de-al-menos-32-caracteres!!', {
-      subject: '1',
-      issuer: 'task-manager-api',
-      audience: 'task-manager-web',
-    });
+    const forged = jwt.sign(
+      { username: 'x', name: 'x' },
+      'otro-secreto-de-al-menos-32-caracteres!!',
+      {
+        subject: '1',
+        issuer: 'task-manager-api',
+        audience: 'task-manager-web',
+      },
+    );
 
     expect(() => service.verify(forged)).toThrow(UnauthorizedError);
   });
@@ -45,7 +49,9 @@ describe('JwtTokenService', () => {
   });
 
   it('rechaza un token expirado', () => {
-    const expired = new JwtTokenService({ ...TEST_AUTH_CONFIG, jwtExpiresIn: '0s' }).issue(user).token;
+    const expired = new JwtTokenService({ ...TEST_AUTH_CONFIG, jwtExpiresIn: '0s' }).issue(
+      user,
+    ).token;
 
     expect(() => service.verify(expired)).toThrow(UnauthorizedError);
   });
@@ -55,7 +61,12 @@ describe('AuthService.login', () => {
   const setup = async () => {
     const users = new InMemoryUserRepository();
     const hasher = new FakePasswordHasher();
-    await users.create({ username: 'agente', passwordHash: await hasher.hash('correcta'), fullName: 'Agente Uno' });
+    await users.create({
+      username: 'agente',
+      passwordHash: await hasher.hash('correcta'),
+      fullName: 'Agente Uno',
+      role: 'AGENT',
+    });
     return new AuthService(users, hasher, new JwtTokenService(TEST_AUTH_CONFIG));
   };
 
@@ -63,7 +74,12 @@ describe('AuthService.login', () => {
     const result = await (await setup()).login('agente', 'correcta');
 
     expect(result.tokenType).toBe('Bearer');
-    expect(result.user).toEqual({ id: 1, username: 'agente', fullName: 'Agente Uno' });
+    expect(result.user).toEqual({
+      id: 1,
+      username: 'agente',
+      fullName: 'Agente Uno',
+      role: 'AGENT',
+    });
     expect(result.token).toEqual(expect.any(String));
   });
 

@@ -38,3 +38,28 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* Grupo de opciones con leyenda accesible (fieldset/legend) dentro de formularios. */
+.choice-field {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.choice-field__legend {
+  font-size: 0.875rem;
+  margin-bottom: 6px;
+  color: rgb(var(--v-theme-on-surface), 0.75);
+}
+
+/* Texto solo para lectores de pantalla. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

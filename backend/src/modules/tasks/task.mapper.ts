@@ -11,8 +11,17 @@ export interface TaskRow {
   DueDate: Date | null;
   CreatedById: number;
   CreatedByName: string;
+  AssignedToId: number | null;
+  AssignedToName: string | null;
   CreatedAt: Date;
   UpdatedAt: Date;
+}
+
+export interface StatusCountRow {
+  Code: string;
+  Name: string;
+  IsFinal: boolean;
+  TaskCount: number;
 }
 
 export interface TaskStatusRow {
@@ -23,9 +32,17 @@ export interface TaskStatusRow {
 }
 
 /** Prioridad: la BD guarda 1/2/3; la API expone códigos legibles. */
-const PRIORITY_BY_VALUE: Readonly<Record<number, PriorityCode>> = { 1: 'HIGH', 2: 'MEDIUM', 3: 'LOW' };
+const PRIORITY_BY_VALUE: Readonly<Record<number, PriorityCode>> = {
+  1: 'HIGH',
+  2: 'MEDIUM',
+  3: 'LOW',
+};
 
-export const PRIORITY_VALUE: Readonly<Record<PriorityCode, number>> = { HIGH: 1, MEDIUM: 2, LOW: 3 };
+export const PRIORITY_VALUE: Readonly<Record<PriorityCode, number>> = {
+  HIGH: 1,
+  MEDIUM: 2,
+  LOW: 3,
+};
 
 const toDateOnly = (date: Date): string => date.toISOString().slice(0, 10);
 
@@ -38,6 +55,8 @@ export function toTask(row: TaskRow): Task {
     priority: PRIORITY_BY_VALUE[row.Priority] ?? 'MEDIUM',
     dueDate: row.DueDate ? toDateOnly(row.DueDate) : null,
     createdBy: { id: row.CreatedById, name: row.CreatedByName },
+    assignedTo:
+      row.AssignedToId === null ? null : { id: row.AssignedToId, name: row.AssignedToName ?? '' },
     createdAt: row.CreatedAt.toISOString(),
     updatedAt: row.UpdatedAt.toISOString(),
   };

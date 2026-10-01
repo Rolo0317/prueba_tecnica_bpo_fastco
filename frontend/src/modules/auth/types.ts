@@ -1,7 +1,10 @@
+export type Role = 'ADMIN' | 'AGENT';
+
 export interface AuthUser {
   id: number;
   username: string;
   fullName: string;
+  role: Role;
 }
 
 export interface Credentials {

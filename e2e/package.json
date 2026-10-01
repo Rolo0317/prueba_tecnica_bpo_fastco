@@ -1,0 +1,15 @@
+{
+  "name": "task-manager-e2e",
+  "version": "1.0.0",
+  "description": "Pruebas end-to-end contra el entorno de docker compose",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "install-browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.3"
+  }
+}

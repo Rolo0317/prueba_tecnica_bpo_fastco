@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
-import type { Task, TaskStatus } from '@/modules/tasks/types';
+import type { Task, TaskStats, TaskStatus } from '@/modules/tasks/types';
 
 /** Se usa el mismo plugin de la app (tema, íconos SVG, idioma) para probar la configuración real. */
 export { vuetify } from '@/plugins/vuetify';
@@ -44,6 +44,7 @@ export function buildTask(overrides: Partial<Task> = {}): Task {
     priority: 'MEDIUM',
     dueDate: null,
     createdBy: { id: 1, name: 'Agente' },
+    assignedTo: null,
     createdAt: '2026-10-01T10:00:00.000Z',
     updatedAt: '2026-10-01T10:00:00.000Z',
     ...overrides,
@@ -66,3 +67,16 @@ export const STATUSES: TaskStatus[] = [
   { code: 'COMPLETED', name: 'Completada', isFinal: true, allowedTransitions: [] },
   { code: 'CANCELLED', name: 'Cancelada', isFinal: true, allowedTransitions: [] },
 ];
+
+export const STATS: TaskStats = {
+  total: 10,
+  overdue: 2,
+  dueToday: 1,
+  highPriorityOpen: 3,
+  byStatus: [
+    { code: 'PENDING', name: 'Pendiente', isFinal: false, count: 5, percentage: 50 },
+    { code: 'IN_PROGRESS', name: 'En progreso', isFinal: false, count: 2, percentage: 20 },
+    { code: 'COMPLETED', name: 'Completada', isFinal: true, count: 3, percentage: 30 },
+    { code: 'CANCELLED', name: 'Cancelada', isFinal: true, count: 0, percentage: 0 },
+  ],
+};

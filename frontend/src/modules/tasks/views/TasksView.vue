@@ -1,17 +1,24 @@
 <script setup lang="ts">
 import { mdiPlus, mdiRefresh } from '@mdi/js';
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { toApiError } from '@/core/http';
+import { useAuthStore } from '@/modules/auth/stores/authStore';
 import { useNotifier } from '@/shared/composables/useNotifier';
-import TaskCreateDialog from '../components/TaskCreateDialog.vue';
+import TaskFormDialog from '../components/TaskFormDialog.vue';
+import TaskStatsPanel from '../components/TaskStatsPanel.vue';
 import TaskStatusFilter from '../components/TaskStatusFilter.vue';
 import TaskTable from '../components/TaskTable.vue';
+import { useAssignees } from '../composables/useAssignees';
+import { useTaskStats } from '../composables/useTaskStats';
 import { useTaskStatuses } from '../composables/useTaskStatuses';
 import { useTasks } from '../composables/useTasks';
 import type { Task } from '../types';
-import { toApiError } from '@/core/http';
 
+const auth = useAuthStore();
 const notifier = useNotifier();
 const statusCatalog = useTaskStatuses();
+const taskStats = useTaskStats();
+const assigneeCatalog = useAssignees();
 const {
   tasks,
   pagination,
@@ -24,27 +31,56 @@ const {
   setPage,
   setPageSize,
   create,
+  update,
   changeStatus,
 } = useTasks();
 
-const createOpen = ref(false);
+const formOpen = ref(false);
+const editing = ref<Task | null>(null);
+const formActions = { create, update };
+
+/** Estas reglas solo deciden qué se muestra; la API y la BD las vuelven a validar. */
+const isAdmin = computed(() => auth.isAdmin);
+const canEdit = (task: Task) => isAdmin.value || task.createdBy.id === auth.user?.id;
+const subtitle = computed(() =>
+  isAdmin.value
+    ? 'Gestiona, asigna y da seguimiento a las tareas de todo el equipo.'
+    : 'Tus tareas: las que tienes asignadas y las que creaste.',
+);
 
 onMounted(() => {
   void statusCatalog.load();
+  void taskStats.load();
+  if (isAdmin.value) void assigneeCatalog.load();
 });
 
-function onCreated(task: Task): void {
-  notifier.success(`Tarea "${task.title}" creada.`);
+function openForm(task: Task | null): void {
+  editing.value = task;
+  formOpen.value = true;
+}
+
+/** Listado e indicadores se actualizan juntos para que nunca muestren datos distintos. */
+function refreshAll(): void {
+  void reload();
+  void taskStats.load();
+}
+
+function onSaved(task: Task, created: boolean): void {
+  notifier.success(
+    created ? `Tarea "${task.title}" creada.` : `Cambios en "${task.title}" guardados.`,
+  );
+  void taskStats.load();
 }
 
 async function onChangeStatus(task: Task, status: string): Promise<void> {
   try {
     const updated = await changeStatus(task, status);
     notifier.success(`"${updated.title}" pasó a ${updated.status.name}.`);
+    void taskStats.load();
   } catch (caught) {
     notifier.error(toApiError(caught).message);
     // Puede que otro agente la haya cambiado antes: se recarga para mostrar el estado real.
-    void reload();
+    refreshAll();
   }
 }
 </script>
@@ -54,20 +90,27 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
     <header class="page-header">
       <div>
         <h1 id="tasks-title" class="page-title">Tareas operativas</h1>
-        <p class="text-medium-emphasis">
-          Gestiona y da seguimiento a las tareas del equipo de back office.
-        </p>
+        <p class="text-medium-emphasis">{{ subtitle }}</p>
       </div>
       <v-btn
         color="primary"
         variant="flat"
         size="large"
         :prepend-icon="mdiPlus"
-        @click="createOpen = true"
+        @click="openForm(null)"
       >
         Nueva tarea
       </v-btn>
     </header>
+
+    <TaskStatsPanel
+      :stats="taskStats.stats.value"
+      :loading="taskStats.loading.value"
+      :error-message="taskStats.error.value?.message ?? null"
+      :active-status="filters.status"
+      @select="setStatus"
+      @retry="taskStats.load()"
+    />
 
     <v-card rounded="lg" class="tasks-card">
       <div class="toolbar">
@@ -79,16 +122,16 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
         <v-btn
           :icon="mdiRefresh"
           variant="text"
-          aria-label="Actualizar listado"
+          aria-label="Actualizar listado e indicadores"
           :loading="loading"
-          @click="reload()"
+          @click="refreshAll()"
         />
       </div>
 
       <v-alert v-if="error" type="error" variant="tonal" class="ma-4" role="alert">
         <div class="alert-body">
           <span>{{ error.message }}</span>
-          <v-btn variant="outlined" size="small" @click="reload()">Reintentar</v-btn>
+          <v-btn variant="outlined" size="small" @click="refreshAll()">Reintentar</v-btn>
         </div>
       </v-alert>
 
@@ -102,15 +145,24 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
         :filtered="filters.status !== null"
         :updating-task-id="updatingTaskId"
         :transitions-for="statusCatalog.transitionsFor"
+        :can-edit="canEdit"
         @update:page="setPage"
         @update:page-size="setPageSize"
         @change-status="onChangeStatus"
-        @create="createOpen = true"
+        @edit="openForm"
+        @create="openForm(null)"
         @clear-filter="setStatus(null)"
       />
     </v-card>
 
-    <TaskCreateDialog v-model="createOpen" :submit-task="create" @created="onCreated" />
+    <TaskFormDialog
+      v-model="formOpen"
+      :task="editing"
+      :actions="formActions"
+      :can-assign="isAdmin"
+      :assignees="assigneeCatalog.assignees.value"
+      @saved="onSaved"
+    />
   </section>
 </template>
 

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { sessionStore } from '@/modules/auth/services/sessionStorage';
 import { createAuthStore } from '@/modules/auth/stores/authStore';
 
-const user = { id: 1, username: 'admin', fullName: 'Administrador Demo' };
+const user = { id: 1, username: 'admin', fullName: 'Administrador Demo', role: 'ADMIN' as const };
 
 describe('authStore', () => {
   beforeEach(() => {

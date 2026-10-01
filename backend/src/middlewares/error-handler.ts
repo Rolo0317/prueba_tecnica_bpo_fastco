@@ -18,7 +18,11 @@ function toAppError(error: unknown): AppError {
       return new ValidationError('El cuerpo de la petición no es un JSON válido.');
     }
     if (error.type === 'entity.too.large') {
-      return new AppError(413, 'PAYLOAD_TOO_LARGE', 'El cuerpo de la petición es demasiado grande.');
+      return new AppError(
+        413,
+        'PAYLOAD_TOO_LARGE',
+        'El cuerpo de la petición es demasiado grande.',
+      );
     }
   }
 

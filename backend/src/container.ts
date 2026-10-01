@@ -8,6 +8,7 @@ import { SqlTaskRepository } from './modules/tasks/task.repository.js';
 import { TaskService } from './modules/tasks/task.service.js';
 import type { TaskRepository } from './modules/tasks/task.types.js';
 import { SqlUserRepository } from './modules/users/user.repository.js';
+import { UserService } from './modules/users/user.service.js';
 import type { UserRepository } from './modules/users/user.types.js';
 
 export interface Container {
@@ -17,6 +18,7 @@ export interface Container {
   tokenService: TokenService;
   authService: AuthService;
   taskService: TaskService;
+  userService: UserService;
 }
 
 /** Composition root: el único lugar donde se eligen las implementaciones concretas. */
@@ -33,5 +35,6 @@ export function createContainer(config: AppConfig, db: ProcedureRunner): Contain
     tokenService,
     authService: new AuthService(userRepository, passwordHasher, tokenService),
     taskService: new TaskService(taskRepository),
+    userService: new UserService(userRepository, passwordHasher),
   };
 }

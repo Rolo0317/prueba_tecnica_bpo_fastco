@@ -37,6 +37,7 @@ const options = computed(() => [
       v-for="option in options"
       :key="option.value"
       :value="option.value"
+      :aria-pressed="selected === option.value"
       :prepend-icon="option.icon"
       variant="outlined"
       filter

@@ -6,6 +6,7 @@ declare module 'vue-router' {
   interface RouteMeta {
     title?: string;
     requiresAuth?: boolean;
+    requiresAdmin?: boolean;
     guestOnly?: boolean;
   }
 }
@@ -32,6 +33,12 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/modules/tasks/views/TasksView.vue'),
         meta: { title: 'Tareas operativas' },
       },
+      {
+        path: 'users',
+        name: 'users',
+        component: () => import('@/modules/users/views/UsersView.vue'),
+        meta: { title: 'Usuarios', requiresAdmin: true },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -44,6 +51,10 @@ router.beforeEach((to) => {
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } };
+  }
+  // Solo oculta la pantalla: la API rechaza con 403 a quien no es administrador.
+  if (to.meta.requiresAdmin && !auth.isAdmin) {
+    return { name: 'tasks' };
   }
   if (to.meta.guestOnly && auth.isAuthenticated) {
     return { name: 'tasks' };

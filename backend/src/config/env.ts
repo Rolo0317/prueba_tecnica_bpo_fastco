@@ -27,6 +27,8 @@ const envSchema = z.object({
     .regex(/^\d+[smhd]$/, 'Formato esperado: número + s|m|h|d (ej. 1h)')
     .default('1h'),
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(10).max(14).default(12),
+  AUTH_MAX_FAILED_ATTEMPTS: z.coerce.number().int().min(1).max(1000).default(10),
+  AUTH_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
 
   SEED_ADMIN_USERNAME: z.string().trim().min(3).max(50),
   SEED_ADMIN_PASSWORD: z.string().min(8),
@@ -55,6 +57,8 @@ export interface AppConfig {
     jwtSecret: string;
     jwtExpiresIn: string;
     bcryptSaltRounds: number;
+    /** Intentos fallidos permitidos (login / cambio de contraseña) por IP y ventana. */
+    failedAttemptsLimit: { limit: number; windowMs: number };
   };
   seed: {
     adminUsername: string;
@@ -103,6 +107,10 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       jwtSecret: env.JWT_SECRET,
       jwtExpiresIn: env.JWT_EXPIRES_IN,
       bcryptSaltRounds: env.BCRYPT_SALT_ROUNDS,
+      failedAttemptsLimit: {
+        limit: env.AUTH_MAX_FAILED_ATTEMPTS,
+        windowMs: env.AUTH_LOCKOUT_MINUTES * 60_000,
+      },
     },
     seed: {
       adminUsername: env.SEED_ADMIN_USERNAME,

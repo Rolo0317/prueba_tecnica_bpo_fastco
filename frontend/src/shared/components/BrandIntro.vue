@@ -354,7 +354,6 @@ const DROP_PATH = 'M0,-24 C9,-12 16,-2 16,8 A16,16 0 1 1 -16,8 C-16,-2 -9,-12 0,
       x="800"
       y="655"
       text-anchor="middle"
-      fill="#26739e"
       font-size="28"
       font-weight="600"
       letter-spacing="7"
@@ -576,6 +575,7 @@ const DROP_PATH = 'M0,-24 C9,-12 16,-2 16,8 A16,16 0 1 1 -16,8 C-16,-2 -9,-12 0,
   }
 }
 .tagline {
+  fill: rgb(var(--v-theme-secondary));
   animation: rise 0.7s 3.05s var(--ease-out) both;
 }
 @keyframes rise {

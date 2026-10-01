@@ -17,7 +17,11 @@ describe('POST /api/v1/auth/login', () => {
     const res = await request(ctx.app).post('/api/v1/auth/login').send({ username, password });
 
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ tokenType: 'Bearer', expiresIn: 3600, user: { username: 'agente' } });
+    expect(res.body).toMatchObject({
+      tokenType: 'Bearer',
+      expiresIn: 3600,
+      user: { username: 'admin', role: 'ADMIN' },
+    });
 
     const protectedRes = await request(ctx.app)
       .get('/api/v1/tasks')
@@ -39,7 +43,10 @@ describe('POST /api/v1/auth/login', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
-    expect(res.body.error.details.map((d: { field: string }) => d.field)).toEqual(['username', 'password']);
+    expect(res.body.error.details.map((d: { field: string }) => d.field)).toEqual([
+      'username',
+      'password',
+    ]);
   });
 
   it('429 después de varios intentos fallidos (fuerza bruta)', async () => {
@@ -77,7 +84,11 @@ describe('Rutas protegidas', () => {
 
 describe('Tareas', () => {
   it('POST 201: crea la tarea en PENDING con Location', async () => {
-    const res = await createTask({ title: 'Escalar reclamo', priority: 'HIGH', dueDate: '2026-10-20' });
+    const res = await createTask({
+      title: 'Escalar reclamo',
+      priority: 'HIGH',
+      dueDate: '2026-10-20',
+    });
 
     expect(res.status).toBe(201);
     expect(res.headers.location).toBe('/api/v1/tasks/1');
@@ -95,12 +106,18 @@ describe('Tareas', () => {
     const res = await createTask({ title: '', priority: 'URGENTE' });
 
     expect(res.status).toBe(400);
-    expect(res.body.error.details.map((d: { field: string }) => d.field)).toEqual(['title', 'priority']);
+    expect(res.body.error.details.map((d: { field: string }) => d.field)).toEqual([
+      'title',
+      'priority',
+    ]);
   });
 
   it('GET 200: filtra por estado y pagina', async () => {
     for (let i = 1; i <= 12; i++) await createTask({ title: `Tarea ${i}` });
-    await request(ctx.app).patch('/api/v1/tasks/1/status').set('Authorization', bearerFor(ctx)).send({ status: 'IN_PROGRESS' });
+    await request(ctx.app)
+      .patch('/api/v1/tasks/1/status')
+      .set('Authorization', bearerFor(ctx))
+      .send({ status: 'IN_PROGRESS' });
 
     const res = await request(ctx.app)
       .get('/api/v1/tasks?status=PENDING&page=2&pageSize=5')
@@ -112,7 +129,9 @@ describe('Tareas', () => {
   });
 
   it('GET 400: parámetros de paginación inválidos', async () => {
-    const res = await request(ctx.app).get('/api/v1/tasks?page=0').set('Authorization', bearerFor(ctx));
+    const res = await request(ctx.app)
+      .get('/api/v1/tasks?page=0')
+      .set('Authorization', bearerFor(ctx));
 
     expect(res.status).toBe(400);
   });
@@ -120,7 +139,10 @@ describe('Tareas', () => {
   it('PATCH 200 → 409: permite transiciones válidas y bloquea las inválidas', async () => {
     await createTask({ title: 'Validar soporte de pago' });
     const patch = (status: string) =>
-      request(ctx.app).patch('/api/v1/tasks/1/status').set('Authorization', bearerFor(ctx)).send({ status });
+      request(ctx.app)
+        .patch('/api/v1/tasks/1/status')
+        .set('Authorization', bearerFor(ctx))
+        .send({ status });
 
     expect((await patch('IN_PROGRESS')).status).toBe(200);
     expect((await patch('COMPLETED')).body.status.code).toBe('COMPLETED');
@@ -148,8 +170,46 @@ describe('Tareas', () => {
     expect(res.status).toBe(400);
   });
 
+  it('GET /tasks/stats 200: conteos, porcentajes y vencimientos según la fecha del usuario', async () => {
+    await createTask({ title: 'Vencida', priority: 'HIGH', dueDate: '2026-09-01' });
+    await createTask({ title: 'Vence hoy', dueDate: '2026-10-05' });
+    await createTask({ title: 'Sin fecha' });
+    await request(ctx.app)
+      .patch('/api/v1/tasks/3/status')
+      .set('Authorization', bearerFor(ctx))
+      .send({ status: 'CANCELLED' });
+
+    const res = await request(ctx.app)
+      .get('/api/v1/tasks/stats?today=2026-10-05')
+      .set('Authorization', bearerFor(ctx));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ total: 3, overdue: 1, dueToday: 1, highPriorityOpen: 1 });
+    expect(res.body.byStatus).toEqual([
+      { code: 'PENDING', name: 'Pendiente', isFinal: false, count: 2, percentage: 67 },
+      { code: 'IN_PROGRESS', name: 'En progreso', isFinal: false, count: 0, percentage: 0 },
+      { code: 'COMPLETED', name: 'Completada', isFinal: true, count: 0, percentage: 0 },
+      { code: 'CANCELLED', name: 'Cancelada', isFinal: true, count: 1, percentage: 33 },
+    ]);
+  });
+
+  it('GET /tasks/stats 400 con una fecha inválida y 0 % sin tareas', async () => {
+    const invalid = await request(ctx.app)
+      .get('/api/v1/tasks/stats?today=05-10-2026')
+      .set('Authorization', bearerFor(ctx));
+    const empty = await request(ctx.app)
+      .get('/api/v1/tasks/stats')
+      .set('Authorization', bearerFor(ctx));
+
+    expect(invalid.status).toBe(400);
+    expect(empty.body.total).toBe(0);
+    expect(empty.body.byStatus.every((s: { percentage: number }) => s.percentage === 0)).toBe(true);
+  });
+
   it('GET /task-statuses 200: incluye transiciones permitidas', async () => {
-    const res = await request(ctx.app).get('/api/v1/task-statuses').set('Authorization', bearerFor(ctx));
+    const res = await request(ctx.app)
+      .get('/api/v1/task-statuses')
+      .set('Authorization', bearerFor(ctx));
 
     expect(res.status).toBe(200);
     expect(res.body[0]).toEqual({
@@ -188,7 +248,9 @@ describe('Comportamiento transversal', () => {
   it('500 sin filtrar detalles internos', async () => {
     ctx.tasks.listStatuses = () => Promise.reject(new Error('Login failed for user task_app'));
 
-    const res = await request(ctx.app).get('/api/v1/task-statuses').set('Authorization', bearerFor(ctx));
+    const res = await request(ctx.app)
+      .get('/api/v1/task-statuses')
+      .set('Authorization', bearerFor(ctx));
 
     expect(res.status).toBe(500);
     expect(JSON.stringify(res.body)).not.toMatch(/task_app|Login failed/);

@@ -27,7 +27,10 @@ function fieldOf(issue: z.core.$ZodIssue, part: RequestPart): string {
 }
 
 /** Valida params, query y body con zod; acumula todos los errores en una sola respuesta 400. */
-export function parseRequest<S extends RequestSchemas>(schemas: S, req: Request): ValidatedInput<S> {
+export function parseRequest<S extends RequestSchemas>(
+  schemas: S,
+  req: Request,
+): ValidatedInput<S> {
   const parsed: Partial<Record<RequestPart, unknown>> = {};
   const details: ErrorDetail[] = [];
 
@@ -40,7 +43,10 @@ export function parseRequest<S extends RequestSchemas>(schemas: S, req: Request)
       parsed[part] = result.data;
     } else {
       details.push(
-        ...result.error.issues.map((issue) => ({ field: fieldOf(issue, part), message: issue.message })),
+        ...result.error.issues.map((issue) => ({
+          field: fieldOf(issue, part),
+          message: issue.message,
+        })),
       );
     }
   }

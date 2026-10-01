@@ -1,5 +1,5 @@
-import { computed, reactive } from 'vue';
-import { useAsyncState } from '@/shared/composables/useAsyncState';
+import { computed, reactive, type Ref } from 'vue';
+import { useFormSubmit } from '@/shared/composables/useFormSubmit';
 import { todayIso } from '@/shared/utils/dates';
 import { TASK_LIMITS } from '../constants';
 import type { CreateTaskPayload, Priority, Task } from '../types';
@@ -9,13 +9,16 @@ interface TaskFormState {
   description: string;
   priority: Priority;
   dueDate: string;
+  /** null = sin asignar. */
+  assignedTo: number | null;
 }
 
-const initialState = (): TaskFormState => ({
-  title: '',
-  description: '',
-  priority: 'MEDIUM',
-  dueDate: '',
+const initialState = (task: Task | null): TaskFormState => ({
+  title: task?.title ?? '',
+  description: task?.description ?? '',
+  priority: task?.priority ?? 'MEDIUM',
+  dueDate: task?.dueDate ?? '',
+  assignedTo: task?.assignedTo?.id ?? null,
 });
 
 /** Mismas reglas que el backend, para dar feedback inmediato (el backend sigue validando). */
@@ -30,44 +33,51 @@ export const taskFormRules = {
       value.trim().length <= TASK_LIMITS.description ||
       `Máximo ${String(TASK_LIMITS.description)} caracteres.`,
   ],
-  dueDate: [
+  /** Al editar se permite conservar una fecha ya vencida; al crear no se acepta el pasado. */
+  dueDate: (original: string | null) => [
     (value: string) =>
-      !value || value >= todayIso() || 'La fecha límite no puede estar en el pasado.',
+      !value ||
+      value === original ||
+      value >= todayIso() ||
+      'La fecha límite no puede estar en el pasado.',
   ],
 };
 
-export function toPayload(state: TaskFormState): CreateTaskPayload {
+/** El responsable solo se envía cuando quien edita puede asignar (administrador). */
+export function toPayload(state: TaskFormState, includeAssignee = false): CreateTaskPayload {
   return {
     title: state.title.trim(),
     description: state.description.trim() || null,
     priority: state.priority,
     dueDate: state.dueDate || null,
+    ...(includeAssignee && { assignedTo: state.assignedTo }),
   };
 }
 
-/** ViewModel del formulario de creación: estado, envío y errores del servidor por campo. */
-export function useTaskForm(submitTask: (payload: CreateTaskPayload) => Promise<Task>) {
-  const form = reactive<TaskFormState>(initialState());
-  const { loading, error, execute } = useAsyncState(() => submitTask(toPayload(form)));
+export interface TaskFormActions {
+  create: (payload: CreateTaskPayload) => Promise<Task>;
+  update: (task: Task, payload: CreateTaskPayload) => Promise<Task>;
+}
 
-  /** Errores de validación del backend asociados a cada campo (details del contrato de error). */
-  const fieldErrors = computed<Partial<Record<keyof TaskFormState, string>>>(() =>
-    Object.fromEntries(
-      (error.value?.details ?? []).map((detail) => [detail.field, detail.message]),
-    ),
-  );
-  const generalError = computed(() =>
-    error.value && error.value.details.length === 0 ? error.value.message : null,
-  );
+/** ViewModel del formulario de tarea. Sin tarea → creación; con tarea → edición. */
+export function useTaskForm(
+  task: Ref<Task | null>,
+  actions: TaskFormActions,
+  canAssign: Ref<boolean>,
+) {
+  const form = reactive<TaskFormState>(initialState(null));
+  const isEdit = computed(() => task.value !== null);
+  const dueDateRules = computed(() => taskFormRules.dueDate(task.value?.dueDate ?? null));
+
+  const { loading, fieldErrors, generalError, clearErrors, submit } = useFormSubmit(() => {
+    const payload = toPayload(form, canAssign.value);
+    return task.value ? actions.update(task.value, payload) : actions.create(payload);
+  });
 
   function reset(): void {
-    Object.assign(form, initialState());
-    error.value = null;
+    Object.assign(form, initialState(task.value));
+    clearErrors();
   }
 
-  async function submit(): Promise<Task | undefined> {
-    return execute();
-  }
-
-  return { form, loading, fieldErrors, generalError, reset, submit };
+  return { form, isEdit, dueDateRules, loading, fieldErrors, generalError, reset, submit };
 }

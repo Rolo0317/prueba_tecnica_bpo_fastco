@@ -20,7 +20,10 @@ async function connectWithRetry(config: AppConfig, logger: Logger): Promise<sql.
       return await createConnectionPool(config.database);
     } catch (error) {
       if (attempt >= CONNECT_ATTEMPTS) throw error;
-      logger.warn({ attempt, maxAttempts: CONNECT_ATTEMPTS }, 'SQL Server no disponible, reintentando');
+      logger.warn(
+        { attempt, maxAttempts: CONNECT_ATTEMPTS },
+        'SQL Server no disponible, reintentando',
+      );
       await wait(CONNECT_RETRY_DELAY_MS);
     }
   }
@@ -54,7 +57,13 @@ async function main(): Promise<void> {
     logger,
   });
 
-  const app = createApp({ config, logger, ...container, checkDatabase: () => db.ping() });
+  const app = createApp({
+    config,
+    logger,
+    ...container,
+    checkDatabase: () => db.ping(),
+    failedAttemptsLimit: config.auth.failedAttemptsLimit,
+  });
   const server = app.listen(config.port, () => {
     logger.info({ port: config.port, env: config.env }, 'API escuchando');
   });

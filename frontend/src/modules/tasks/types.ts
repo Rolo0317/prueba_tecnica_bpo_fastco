@@ -8,6 +8,8 @@ export interface Task {
   priority: Priority;
   dueDate: string | null;
   createdBy: { id: number; name: string };
+  /** Responsable; null = sin asignar. */
+  assignedTo: { id: number; name: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -19,16 +21,22 @@ export interface TaskStatus {
   allowedTransitions: string[];
 }
 
-export interface Pagination {
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
+export type { Paginated, Pagination } from '@/shared/types/pagination';
+
+export interface StatusStat {
+  code: string;
+  name: string;
+  isFinal: boolean;
+  count: number;
+  percentage: number;
 }
 
-export interface Paginated<T> {
-  data: T[];
-  pagination: Pagination;
+export interface TaskStats {
+  total: number;
+  overdue: number;
+  dueToday: number;
+  highPriorityOpen: number;
+  byStatus: StatusStat[];
 }
 
 export interface TaskFilters {
@@ -42,4 +50,14 @@ export interface CreateTaskPayload {
   description: string | null;
   priority: Priority;
   dueDate: string | null;
+  /** Solo lo envía un administrador; ausente = conservar / valor por defecto. */
+  assignedTo?: number | null;
+}
+
+export type UpdateTaskPayload = CreateTaskPayload;
+
+export interface Assignee {
+  id: number;
+  username: string;
+  fullName: string;
 }

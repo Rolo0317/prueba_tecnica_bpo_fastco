@@ -1,9 +1,10 @@
 import sql from 'mssql';
-import type { ProcedureRunner } from '../../database/procedure-executor.js';
+import type { ProcedureParameter, ProcedureRunner } from '../../database/procedure-executor.js';
 import {
   PRIORITY_VALUE,
   toTask,
   toTaskStatus,
+  type StatusCountRow,
   type TaskRow,
   type TaskStatusRow,
 } from './task.mapper.js';
@@ -12,10 +13,32 @@ import type {
   CreateTaskInput,
   ListTasksFilter,
   Task,
+  TaskData,
   TaskPage,
   TaskRepository,
+  TaskStatsSnapshot,
   TaskStatus,
+  UpdateTaskInput,
+  ViewerScope,
 } from './task.types.js';
+
+const optionalInt = (value: number | null | undefined): ProcedureParameter => ({
+  type: sql.Int,
+  value: value ?? null,
+});
+
+const dateOnly = (value: string | null): ProcedureParameter => ({
+  type: sql.Date,
+  value: value ? new Date(value) : null,
+});
+
+/** Campos editables de una tarea, comunes a crear y editar (DRY). */
+const taskDataInputs = (data: TaskData): Record<string, ProcedureParameter> => ({
+  Title: { type: sql.NVarChar(500), value: data.title },
+  Description: { type: sql.NVarChar(2000), value: data.description },
+  Priority: { type: sql.TinyInt, value: PRIORITY_VALUE[data.priority] },
+  DueDate: dateOnly(data.dueDate),
+});
 
 export class SqlTaskRepository implements TaskRepository {
   constructor(private readonly db: ProcedureRunner) {}
@@ -26,6 +49,7 @@ export class SqlTaskRepository implements TaskRepository {
         StatusCode: { type: sql.VarChar(20), value: filter.status ?? null },
         Page: { type: sql.Int, value: filter.page },
         PageSize: { type: sql.Int, value: filter.pageSize },
+        ViewerId: optionalInt(filter.viewerId),
       },
       outputs: { TotalCount: sql.Int },
     });
@@ -35,14 +59,25 @@ export class SqlTaskRepository implements TaskRepository {
   async create(input: CreateTaskInput): Promise<Task> {
     const { rows } = await this.db.execute<TaskRow>('dbo.usp_Tasks_Create', {
       inputs: {
-        Title: { type: sql.NVarChar(500), value: input.title },
-        Description: { type: sql.NVarChar(2000), value: input.description },
-        Priority: { type: sql.TinyInt, value: PRIORITY_VALUE[input.priority] },
-        DueDate: { type: sql.Date, value: input.dueDate ? new Date(input.dueDate) : null },
+        ...taskDataInputs(input),
+        AssignedTo: optionalInt(input.assignedTo),
         CreatedBy: { type: sql.Int, value: input.createdBy },
       },
     });
     return this.singleTask(rows, 'usp_Tasks_Create');
+  }
+
+  async update(input: UpdateTaskInput): Promise<Task> {
+    const { rows } = await this.db.execute<TaskRow>('dbo.usp_Tasks_Update', {
+      inputs: {
+        TaskId: { type: sql.Int, value: input.taskId },
+        ...taskDataInputs(input),
+        AssignedTo: optionalInt(input.assignedTo),
+        ChangeAssignee: { type: sql.Bit, value: input.assignedTo !== undefined },
+        ActorId: optionalInt(input.actorId),
+      },
+    });
+    return this.singleTask(rows, 'usp_Tasks_Update');
   }
 
   async changeStatus(input: ChangeTaskStatusInput): Promise<Task> {
@@ -51,6 +86,7 @@ export class SqlTaskRepository implements TaskRepository {
         TaskId: { type: sql.Int, value: input.taskId },
         StatusCode: { type: sql.VarChar(20), value: input.status },
         ChangedBy: { type: sql.Int, value: input.changedBy },
+        ViewerId: optionalInt(input.viewerId),
       },
     });
     return this.singleTask(rows, 'usp_Tasks_ChangeStatus');
@@ -59,6 +95,30 @@ export class SqlTaskRepository implements TaskRepository {
   async listStatuses(): Promise<TaskStatus[]> {
     const { rows } = await this.db.execute<TaskStatusRow>('dbo.usp_TaskStatuses_List');
     return rows.map(toTaskStatus);
+  }
+
+  async stats(today: string | null, viewerId?: ViewerScope): Promise<TaskStatsSnapshot> {
+    const { rows, output } = await this.db.execute<StatusCountRow>('dbo.usp_Tasks_Stats', {
+      inputs: { Today: dateOnly(today), ViewerId: optionalInt(viewerId) },
+      outputs: {
+        Total: sql.Int,
+        Overdue: sql.Int,
+        DueToday: sql.Int,
+        HighPriorityOpen: sql.Int,
+      },
+    });
+    return {
+      total: Number(output.Total ?? 0),
+      overdue: Number(output.Overdue ?? 0),
+      dueToday: Number(output.DueToday ?? 0),
+      highPriorityOpen: Number(output.HighPriorityOpen ?? 0),
+      byStatus: rows.map((row) => ({
+        code: row.Code,
+        name: row.Name,
+        isFinal: row.IsFinal,
+        count: row.TaskCount,
+      })),
+    };
   }
 
   private singleTask(rows: TaskRow[], procedure: string): Task {

@@ -1,4 +1,4 @@
-import { reactive, ref } from 'vue';
+import { reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAsyncState } from '@/shared/composables/useAsyncState';
 import { safeRedirect } from '@/shared/utils/safeRedirect';
@@ -17,7 +17,6 @@ export function useLoginForm() {
   const route = useRoute();
 
   const credentials = reactive<Credentials>({ username: '', password: '' });
-  const showPassword = ref(false);
   const sessionExpired = route.query.expired === '1';
 
   const { loading, error, execute } = useAsyncState(async (input: Credentials) => {
@@ -32,5 +31,5 @@ export function useLoginForm() {
     }
   }
 
-  return { credentials, showPassword, sessionExpired, loading, error, submit };
+  return { credentials, sessionExpired, loading, error, submit };
 }

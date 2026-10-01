@@ -4,7 +4,8 @@ import { toApiError } from '@/core/http';
 import { useAsyncState } from '@/shared/composables/useAsyncState';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../constants';
 import { taskService, type TaskService } from '../services/taskService';
-import type { CreateTaskPayload, Pagination, Task, TaskFilters } from '../types';
+import { emptyPagination } from '@/shared/types/pagination';
+import type { CreateTaskPayload, Task, TaskFilters, UpdateTaskPayload } from '../types';
 
 const STATUS_PATTERN = /^[A-Z_]{1,20}$/;
 
@@ -26,13 +27,6 @@ export function parseFilters(query: LocationQuery): TaskFilters {
   };
 }
 
-const EMPTY_PAGINATION: Pagination = {
-  page: 1,
-  pageSize: DEFAULT_PAGE_SIZE,
-  total: 0,
-  totalPages: 0,
-};
-
 /** ViewModel del listado: carga, filtro, paginación, creación y cambio de estado. */
 export function useTasks(service: TaskService = taskService) {
   const route = useRoute();
@@ -43,7 +37,7 @@ export function useTasks(service: TaskService = taskService) {
   const updatingTaskId = ref<number | null>(null);
 
   const tasks = computed<Task[]>(() => list.data.value?.data ?? []);
-  const pagination = computed(() => list.data.value?.pagination ?? EMPTY_PAGINATION);
+  const pagination = computed(() => list.data.value?.pagination ?? emptyPagination());
 
   const reload = () => list.execute(filters.value);
   watch(filters, reload, { immediate: true, deep: true });
@@ -68,6 +62,12 @@ export function useTasks(service: TaskService = taskService) {
     if (filters.value.page === 1) await reload();
     else await setPage(1);
     return task;
+  }
+
+  async function update(task: Task, payload: UpdateTaskPayload): Promise<Task> {
+    const updated = await service.update(task.id, payload);
+    replaceTask(updated);
+    return updated;
   }
 
   /** Devuelve la tarea actualizada; si falla lanza ApiError (la vista muestra el mensaje). */
@@ -107,6 +107,7 @@ export function useTasks(service: TaskService = taskService) {
     setPage,
     setPageSize,
     create,
+    update,
     changeStatus,
   };
 }

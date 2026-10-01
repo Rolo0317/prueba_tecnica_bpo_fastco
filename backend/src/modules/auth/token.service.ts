@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import type { AppConfig } from '../../config/env.js';
 import { UnauthorizedError } from '../../core/errors.js';
+import { ROLES } from '../users/user.types.js';
 import type { AuthUser, IssuedToken, TokenService } from './auth.types.js';
 
 const ALGORITHM = 'HS256';
@@ -13,6 +14,7 @@ const payloadSchema = z.object({
   sub: z.string().regex(/^\d+$/),
   username: z.string(),
   name: z.string(),
+  role: z.enum(ROLES),
 });
 
 /** Convierte "15m", "1h", "7d"… a segundos (el formato ya viene validado en env.ts). */
@@ -29,7 +31,8 @@ export class JwtTokenService implements TokenService {
   }
 
   issue(user: AuthUser): IssuedToken {
-    const token = jwt.sign({ username: user.username, name: user.fullName }, this.config.jwtSecret, {
+    const claims = { username: user.username, name: user.fullName, role: user.role };
+    const token = jwt.sign(claims, this.config.jwtSecret, {
       algorithm: ALGORITHM,
       subject: String(user.id),
       issuer: ISSUER,
@@ -47,7 +50,12 @@ export class JwtTokenService implements TokenService {
         audience: AUDIENCE,
       });
       const payload = payloadSchema.parse(decoded);
-      return { id: Number(payload.sub), username: payload.username, fullName: payload.name };
+      return {
+        id: Number(payload.sub),
+        username: payload.username,
+        fullName: payload.name,
+        role: payload.role,
+      };
     } catch {
       throw new UnauthorizedError('La sesión no es válida o expiró. Inicia sesión de nuevo.');
     }

@@ -1,13 +1,15 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
+import { ref } from 'vue';
 import TaskEmptyState from '@/modules/tasks/components/TaskEmptyState.vue';
 import TaskStatusChip from '@/modules/tasks/components/TaskStatusChip.vue';
-import { useTaskForm, toPayload } from '@/modules/tasks/composables/useTaskForm';
+import { taskFormRules, toPayload, useTaskForm } from '@/modules/tasks/composables/useTaskForm';
 import { useTaskStatuses } from '@/modules/tasks/composables/useTaskStatuses';
 import { parseFilters, useTasks } from '@/modules/tasks/composables/useTasks';
 import type { TaskService } from '@/modules/tasks/services/taskService';
+import type { Task } from '@/modules/tasks/types';
 import { ApiError } from '@/core/http';
-import { buildTask, flushPromises, STATUSES, vuetify, withSetup } from '../helpers';
+import { buildTask, flushPromises, STATS, STATUSES, vuetify, withSetup } from '../helpers';
 
 function fakeService(overrides: Partial<TaskService> = {}): TaskService {
   return {
@@ -16,10 +18,12 @@ function fakeService(overrides: Partial<TaskService> = {}): TaskService {
       pagination: { page: 1, pageSize: 10, total: 1, totalPages: 1 },
     }),
     create: vi.fn().mockResolvedValue(buildTask({ id: 2 })),
+    update: vi.fn().mockResolvedValue(buildTask({ title: 'Editada' })),
     changeStatus: vi
       .fn()
       .mockResolvedValue(buildTask({ status: { code: 'IN_PROGRESS', name: 'En progreso' } })),
     listStatuses: vi.fn().mockResolvedValue(STATUSES),
+    stats: vi.fn().mockResolvedValue(STATS),
     ...overrides,
   };
 }
@@ -88,6 +92,22 @@ describe('useTasks', () => {
     expect(result.updatingTaskId.value).toBeNull();
   });
 
+  it('editar reemplaza la tarea en la lista con la respuesta del servidor', async () => {
+    const service = fakeService();
+    const { result } = await withSetup(() => useTasks(service));
+    await flushPromises();
+
+    await result.update(buildTask(), {
+      title: 'Editada',
+      description: null,
+      priority: 'LOW',
+      dueDate: null,
+    });
+
+    expect(service.update).toHaveBeenCalledWith(1, expect.objectContaining({ title: 'Editada' }));
+    expect(result.tasks.value[0]?.title).toBe('Editada');
+  });
+
   it('propaga un 409 de transición inválida como ApiError', async () => {
     const conflict = new ApiError(409, 'CONFLICT', 'No se permite');
     const service = fakeService({ changeStatus: vi.fn().mockRejectedValue(conflict) });
@@ -113,27 +133,66 @@ describe('useTaskStatuses', () => {
 });
 
 describe('useTaskForm', () => {
-  it('limpia la entrada antes de enviarla', () => {
-    expect(
-      toPayload({ title: '  Escalar  ', description: '   ', priority: 'HIGH', dueDate: '' }),
-    ).toEqual({
-      title: 'Escalar',
-      description: null,
-      priority: 'HIGH',
-      dueDate: null,
-    });
+  const state = {
+    title: '  Escalar  ',
+    description: '   ',
+    priority: 'HIGH' as const,
+    dueDate: '',
+    assignedTo: 7,
+  };
+
+  it('limpia la entrada y solo envía el responsable si quien edita puede asignar', () => {
+    const base = { title: 'Escalar', description: null, priority: 'HIGH', dueDate: null };
+
+    expect(toPayload(state)).toEqual(base);
+    expect(toPayload(state, true)).toEqual({ ...base, assignedTo: 7 });
+  });
+
+  it('sin tarea crea; con tarea edita y precarga sus datos (incluido el responsable)', async () => {
+    const actions = {
+      create: vi.fn().mockResolvedValue(buildTask()),
+      update: vi.fn().mockResolvedValue(buildTask()),
+    };
+    const task = ref<Task | null>(null);
+    const form = useTaskForm(task, actions, ref(true));
+
+    Object.assign(form.form, { title: 'Nueva', assignedTo: 3 });
+    await form.submit();
+    expect(actions.create).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Nueva', assignedTo: 3 }),
+    );
+
+    task.value = buildTask({ title: 'Existente', assignedTo: { id: 5, name: 'Ana' } });
+    form.reset();
+    expect(form.form).toMatchObject({ title: 'Existente', assignedTo: 5 });
+    await form.submit();
+    expect(actions.update).toHaveBeenCalledWith(
+      task.value,
+      expect.objectContaining({ assignedTo: 5 }),
+    );
   });
 
   it('asocia los errores de validación del servidor a cada campo', async () => {
     const error = new ApiError(400, 'VALIDATION_ERROR', 'Inválido', [
       { field: 'title', message: 'Muy largo' },
     ]);
-    const form = useTaskForm(vi.fn().mockRejectedValue(error));
+    const form = useTaskForm(
+      ref(null),
+      { create: vi.fn().mockRejectedValue(error), update: vi.fn() },
+      ref(false),
+    );
 
     await form.submit();
 
     expect(form.fieldErrors.value.title).toBe('Muy largo');
     expect(form.generalError.value).toBeNull();
+  });
+
+  it('al editar permite conservar una fecha límite ya vencida', () => {
+    const rules = taskFormRules.dueDate('2020-01-01');
+
+    expect(rules[0]?.('2020-01-01')).toBe(true);
+    expect(rules[0]?.('2020-01-02')).toBe('La fecha límite no puede estar en el pasado.');
   });
 });
 

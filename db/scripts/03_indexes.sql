@@ -54,6 +54,29 @@ BEGIN
 END;
 GO
 
+/* Visibilidad de un agente: solo ve las tareas asignadas a él y las que creó.
+   Un índice por cada condición (misma forma que el principal: filtro + orden de la página)
+   permite a SQL Server resolver el OR con dos Index Seek combinados en lugar de un scan. */
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = N'IX_Tasks_AssignedTo_StatusId_CreatedAt' AND object_id = OBJECT_ID(N'dbo.Tasks')
+)
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Tasks_AssignedTo_StatusId_CreatedAt
+        ON dbo.Tasks (AssignedTo, StatusId, CreatedAt DESC, TaskId DESC);
+END;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = N'IX_Tasks_CreatedBy_StatusId_CreatedAt' AND object_id = OBJECT_ID(N'dbo.Tasks')
+)
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Tasks_CreatedBy_StatusId_CreatedAt
+        ON dbo.Tasks (CreatedBy, StatusId, CreatedAt DESC, TaskId DESC);
+END;
+GO
+
 /* IX_TaskStatusHistory_TaskId_ChangedAt: soporta la FK hacia Tasks y la consulta
    del historial de una tarea en orden cronológico (auditoría). */
 IF NOT EXISTS (

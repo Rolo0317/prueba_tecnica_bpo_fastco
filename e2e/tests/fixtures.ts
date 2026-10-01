@@ -1,0 +1,63 @@
+import { expect, test as base, type Page } from '@playwright/test';
+
+export const credentials = {
+  username: process.env.SEED_ADMIN_USERNAME ?? '',
+  password: process.env.SEED_ADMIN_PASSWORD ?? '',
+};
+
+export async function login(page: Page, password = credentials.password): Promise<void> {
+  await page.getByLabel('Usuario').fill(credentials.username);
+  await page.getByLabel('Contraseña', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Ingresar' }).click();
+}
+
+/** Página ya autenticada y con la tabla de tareas cargada. */
+export const test = base.extend<{ tasksPage: Page }>({
+  tasksPage: async ({ page }, use) => {
+    await page.goto('/login');
+    await login(page);
+    await expect(page).toHaveURL(/\/tasks/);
+    await expect(page.locator('.task-table tbody tr').first()).toBeVisible();
+    await use(page);
+  },
+});
+
+export { expect };
+
+export const unique = () => Date.now().toString(36);
+
+export async function loginAs(page: Page, username: string, password: string): Promise<void> {
+  await page.goto('/login');
+  await page.getByLabel('Usuario').fill(username);
+  await page.getByLabel('Contraseña', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Ingresar' }).click();
+}
+
+export async function logout(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /^Menú de / }).click();
+  await page.getByRole('listitem').filter({ hasText: 'Salir' }).click();
+  await expect(page).toHaveURL(/\/login/);
+}
+
+/** El administrador crea un agente nuevo desde el módulo de usuarios. */
+export async function createAgent(page: Page, username: string, password: string): Promise<void> {
+  // Funciona con o sin sesión de administrador ya iniciada.
+  await page.goto('/users');
+  if (page.url().includes('/login')) {
+    await page.getByLabel('Usuario').fill(credentials.username);
+    await page.getByLabel('Contraseña', { exact: true }).fill(credentials.password);
+    await page.getByRole('button', { name: 'Ingresar' }).click();
+  }
+  await expect(page).toHaveURL(/\/users/);
+  await expect(page.getByRole('heading', { name: 'Usuarios' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Nuevo usuario' }).click();
+  await page.getByLabel('Usuario *').fill(username);
+  await page.getByLabel('Nombre completo *').fill(`Agente ${username}`);
+  await page.getByLabel('Contraseña inicial *', { exact: true }).fill(password);
+  await page.getByLabel('Confirmar contraseña *', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Crear usuario' }).click();
+
+  await expect(page.getByText(`Usuario "${username}" creado.`)).toBeVisible();
+}
+

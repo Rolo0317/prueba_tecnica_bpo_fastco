@@ -48,10 +48,33 @@ BEGIN
         Username     NVARCHAR(50)  NOT NULL CONSTRAINT UQ_Users_Username UNIQUE,
         PasswordHash VARCHAR(100)  NOT NULL,
         FullName     NVARCHAR(100) NOT NULL,
+        Role         VARCHAR(20)   NOT NULL CONSTRAINT DF_Users_Role DEFAULT ('AGENT'),
         IsActive     BIT           NOT NULL CONSTRAINT DF_Users_IsActive DEFAULT (1),
         CreatedAt    DATETIME2(3)  NOT NULL CONSTRAINT DF_Users_CreatedAt DEFAULT (SYSUTCDATETIME()),
-        CONSTRAINT CK_Users_Username_NotBlank CHECK (LEN(TRIM(Username)) > 0)
+        PasswordChangedAt DATETIME2(3) NULL,
+        DeletedAt    DATETIME2(3)  NULL,
+        CONSTRAINT CK_Users_Username_NotBlank CHECK (LEN(TRIM(Username)) > 0),
+        CONSTRAINT CK_Users_Role CHECK (Role IN ('ADMIN', 'AGENT'))
     );
+END;
+GO
+
+/* Migración para bases creadas antes de los roles: agrega las columnas que falten.
+   Los usuarios que ya existían tenían acceso completo, así que conservan ese acceso como ADMIN. */
+IF COL_LENGTH(N'dbo.Users', N'Role') IS NULL
+BEGIN
+    ALTER TABLE dbo.Users ADD Role VARCHAR(20) NOT NULL
+        CONSTRAINT DF_Users_Role DEFAULT ('AGENT') WITH VALUES;
+    -- Se ejecutan como SQL dinámico (texto fijo, sin parámetros) porque la columna aún no
+    -- existía cuando se compiló este lote.
+    EXEC sys.sp_executesql N'UPDATE dbo.Users SET Role = ''ADMIN'';';
+    EXEC sys.sp_executesql N'ALTER TABLE dbo.Users ADD CONSTRAINT CK_Users_Role CHECK (Role IN (''ADMIN'', ''AGENT''));';
+END;
+GO
+
+IF COL_LENGTH(N'dbo.Users', N'PasswordChangedAt') IS NULL
+BEGIN
+    ALTER TABLE dbo.Users ADD PasswordChangedAt DATETIME2(3) NULL;
 END;
 GO
 
@@ -69,11 +92,30 @@ BEGIN
         DueDate     DATE           NULL,
         CreatedBy   INT            NOT NULL
             CONSTRAINT FK_Tasks_CreatedBy REFERENCES dbo.Users (UserId),
+        -- Responsable de la tarea. NULL = sin asignar.
+        AssignedTo  INT            NULL
+            CONSTRAINT FK_Tasks_AssignedTo REFERENCES dbo.Users (UserId),
         CreatedAt   DATETIME2(3)   NOT NULL CONSTRAINT DF_Tasks_CreatedAt DEFAULT (SYSUTCDATETIME()),
         UpdatedAt   DATETIME2(3)   NOT NULL CONSTRAINT DF_Tasks_UpdatedAt DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT CK_Tasks_Title_NotBlank CHECK (LEN(TRIM(Title)) > 0),
         CONSTRAINT CK_Tasks_Priority CHECK (Priority BETWEEN 1 AND 3) -- 1 = Alta, 2 = Media, 3 = Baja
     );
+END;
+GO
+
+/* Migración: asignación de tareas para bases creadas antes de esta funcionalidad. */
+IF COL_LENGTH(N'dbo.Tasks', N'AssignedTo') IS NULL
+BEGIN
+    ALTER TABLE dbo.Tasks ADD AssignedTo INT NULL
+        CONSTRAINT FK_Tasks_AssignedTo REFERENCES dbo.Users (UserId);
+END;
+GO
+
+/* Migración: eliminación lógica de usuarios. Un usuario eliminado no inicia sesión ni
+   aparece en la administración, pero su rastro en tareas e historial se conserva (auditoría). */
+IF COL_LENGTH(N'dbo.Users', N'DeletedAt') IS NULL
+BEGIN
+    ALTER TABLE dbo.Users ADD DeletedAt DATETIME2(3) NULL;
 END;
 GO
 

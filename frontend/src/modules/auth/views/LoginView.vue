@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { mdiAccountOutline, mdiEyeOffOutline, mdiEyeOutline, mdiLockOutline } from '@mdi/js';
+import { mdiAccountOutline } from '@mdi/js';
 import BrandIntro from '@/shared/components/BrandIntro.vue';
 import BrandMark from '@/shared/components/BrandMark.vue';
+import PasswordField from '@/shared/components/PasswordField.vue';
+import ThemeToggle from '@/shared/components/ThemeToggle.vue';
 import { loginRules, useLoginForm } from '../composables/useLoginForm';
 
-const { credentials, showPassword, sessionExpired, loading, error, submit } = useLoginForm();
+const { credentials, sessionExpired, loading, error, submit } = useLoginForm();
 </script>
 
 <template>
   <div class="login-page">
+    <div class="login-theme"><ThemeToggle /></div>
+
     <section class="login-brand" aria-label="fastco">
       <BrandIntro />
     </section>
@@ -52,26 +56,11 @@ const { credentials, showPassword, sessionExpired, loading, error, submit } = us
             autocomplete="username"
             autofocus
           />
-          <v-text-field
+          <PasswordField
             v-model="credentials.password"
             label="Contraseña"
-            :type="showPassword ? 'text' : 'password'"
-            :prepend-inner-icon="mdiLockOutline"
             :rules="loginRules.password"
-            autocomplete="current-password"
-          >
-            <template #append-inner>
-              <v-btn
-                :icon="showPassword ? mdiEyeOffOutline : mdiEyeOutline"
-                :aria-label="showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
-                :aria-pressed="showPassword"
-                variant="text"
-                size="small"
-                density="comfortable"
-                @click="showPassword = !showPassword"
-              />
-            </template>
-          </v-text-field>
+          />
           <v-btn type="submit" color="primary" size="large" block :loading="loading">
             Ingresar
           </v-btn>
@@ -86,7 +75,18 @@ const { credentials, showPassword, sessionExpired, loading, error, submit } = us
   min-height: 100dvh;
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(360px, 1fr);
-  background: radial-gradient(ellipse at 35% 45%, #fff 0 40%, rgb(var(--v-theme-background)) 100%);
+  position: relative;
+  background: radial-gradient(
+    ellipse at 35% 45%,
+    rgb(var(--v-theme-surface)) 0 40%,
+    rgb(var(--v-theme-background)) 100%
+  );
+}
+.login-theme {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
 }
 .login-brand {
   display: grid;

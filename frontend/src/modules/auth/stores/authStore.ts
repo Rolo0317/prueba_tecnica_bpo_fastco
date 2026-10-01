@@ -12,6 +12,8 @@ export function createAuthStore(service: AuthService = authService) {
       () => session.value !== null && session.value.expiresAt > Date.now(),
     );
     const user = computed(() => session.value?.user ?? null);
+    /** Solo controla qué se muestra: los permisos reales los valida la API (403). */
+    const isAdmin = computed(() => user.value?.role === 'ADMIN');
     const token = computed(() => (isAuthenticated.value ? (session.value?.token ?? null) : null));
 
     async function login(credentials: Credentials): Promise<void> {
@@ -29,7 +31,7 @@ export function createAuthStore(service: AuthService = authService) {
       sessionStore.clear();
     }
 
-    return { session, isAuthenticated, user, token, login, logout };
+    return { session, isAuthenticated, user, isAdmin, token, login, logout };
   });
 }
 

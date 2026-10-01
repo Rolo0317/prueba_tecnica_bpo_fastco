@@ -28,7 +28,12 @@ export class AuthService {
       throw new UnauthorizedError(INVALID_CREDENTIALS);
     }
 
-    const authUser = { id: user.id, username: user.username, fullName: user.fullName };
+    const authUser = {
+      id: user.id,
+      username: user.username,
+      fullName: user.fullName,
+      role: user.role,
+    };
     return { ...this.tokens.issue(authUser), tokenType: 'Bearer', user: authUser };
   }
 }

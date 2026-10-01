@@ -41,7 +41,6 @@ export const PRIORITY_OPTIONS = (Object.keys(PRIORITY_VISUALS) as Priority[]).ma
   ...PRIORITY_VISUALS[value],
 }));
 
-export const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
-export const DEFAULT_PAGE_SIZE = PAGE_SIZE_OPTIONS[0];
+export { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/shared/types/pagination';
 
 export const TASK_LIMITS = { title: 150, description: 1000 } as const;
