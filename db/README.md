@@ -8,7 +8,9 @@
 | `02_tables.sql` | `TaskStatuses`, `TaskStatusTransitions`, `Users`, `Tasks`, `TaskStatusHistory` |
 | `03_indexes.sql` | Índices justificados por las consultas reales |
 | `04_views.sql` | `vw_TaskDetails`: proyección única de una tarea (la reutilizan todos los SPs) |
-| `05_procedures.sql` | Stored Procedures de la aplicación |
+| `05_procedures.sql` | Stored Procedures de tareas y estados |
+| `05_procedures_users.sql` | Stored Procedures de usuarios: login, administración y contraseñas |
+| `05_procedures_stats.sql` | `usp_Tasks_Stats`: indicadores del panel |
 | `06_seed_catalogs.sql` | Estados y transiciones permitidas |
 | `07_security.sql` | Usuario de aplicación con mínimo privilegio (solo `EXECUTE`) |
 
@@ -32,8 +34,19 @@ TaskStatuses 1───* Tasks *───1 Users
 
 | Procedimiento | Transacción | Errores de negocio |
 |---|---|---|
-| `usp_Users_GetByUsername` | — | — |
-| `usp_Users_Create` (solo acepta hash bcrypt) | — | 50400, 50409 |
+| `usp_Users_GetByUsername` / `usp_Users_GetCredentialsById` (solo activos) | — | — |
+| `usp_Users_List` (paginado) | — | 50400 |
+| `usp_Users_Create` (solo acepta hash bcrypt, rol `ADMIN`/`AGENT`) | — | 50400, 50409 |
+| `usp_Users_Update` / `usp_Users_SetActive` (siempre queda un admin activo) | ✅ | 50400, 50404, 50409 |
+| `usp_Users_UpdatePassword` | — | 50400, 50404 |
+| `usp_Tasks_Stats` (conteos por estado y vencimientos, por alcance) | — | — |
+| `usp_Tasks_Update` (datos y responsable; permisos por rol) | ✅ | 50400, 50403, 50404 |
+| `usp_Users_ListAssignable` / `usp_Users_Delete` (eliminación lógica) | ✅ | 50404, 50409 |
+
+**Visibilidad:** los SPs de tareas reciben `@ViewerId` (NULL = administrador). Un agente solo ve, cambia de
+estado y cuenta las tareas asignadas a él o creadas por él; una tarea ajena responde 50404. Índices de apoyo:
+`IX_Tasks_AssignedTo_StatusId_CreatedAt` e `IX_Tasks_CreatedBy_StatusId_CreatedAt`.
+Detalle de las decisiones en [ADR 0002](../docs/adr/0002-control-de-acceso-y-eliminacion-de-usuarios.md).
 | `usp_TaskStatuses_List` (incluye transiciones permitidas) | — | — |
 | `usp_Tasks_List` (filtro + paginación + `@TotalCount OUTPUT`) | — | 50400 |
 | `usp_Tasks_Create` (tarea + historial) | ✅ | 50400 |
