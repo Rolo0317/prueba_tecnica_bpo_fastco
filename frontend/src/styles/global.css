@@ -1,0 +1,40 @@
+:root {
+  --app-font: 'Fira Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+html,
+body,
+.v-application {
+  font-family: var(--app-font);
+}
+
+body {
+  background: rgb(var(--v-theme-background));
+}
+
+/* Cifras de ancho fijo en fechas y números de tablas: no "bailan" al cambiar. */
+.tabular,
+.v-data-table-footer {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Foco visible y consistente para navegación por teclado. */
+:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
+}
+
+/* Los campos de Vuetify ya resaltan su borde al enfocarse: se evita un doble contorno. */
+.v-field input:focus-visible,
+.v-field textarea:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
