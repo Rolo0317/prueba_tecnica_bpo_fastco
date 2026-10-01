@@ -1,0 +1,5 @@
+# Forzar finales de línea LF: los scripts .sh y .sql se ejecutan dentro de contenedores Linux
+* text=auto eol=lf
+*.pdf binary
+*.png binary
+*.ico binary
