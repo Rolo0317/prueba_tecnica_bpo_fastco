@@ -22,10 +22,10 @@ describe('JwtTokenService', () => {
   const service = new JwtTokenService(TEST_AUTH_CONFIG);
 
   it('emite un token verificable con los datos del usuario', () => {
-    const { token, expiresIn } = service.issue(user);
+    const { token, expiresIn } = service.issue(user, 1_700_000_000_000);
 
     expect(expiresIn).toBe(3600);
-    expect(service.verify(token)).toEqual(user);
+    expect(service.verify(token)).toEqual({ user, passwordVersion: 1_700_000_000_000 });
   });
 
   it('rechaza un token firmado con otro secreto', () => {
@@ -51,6 +51,7 @@ describe('JwtTokenService', () => {
   it('rechaza un token expirado', () => {
     const expired = new JwtTokenService({ ...TEST_AUTH_CONFIG, jwtExpiresIn: '0s' }).issue(
       user,
+      0,
     ).token;
 
     expect(() => service.verify(expired)).toThrow(UnauthorizedError);

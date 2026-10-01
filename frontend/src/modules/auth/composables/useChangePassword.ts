@@ -2,11 +2,19 @@ import { reactive } from 'vue';
 import { useFormSubmit } from '@/shared/composables/useFormSubmit';
 import { matchesRule, passwordPolicyRules } from '@/shared/validation/passwordRules';
 import { accountService, type AccountService } from '../services/accountService';
+import { useAuthStore } from '../stores/authStore';
+import type { LoginResponse } from '../types';
 
 const initialState = () => ({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
 /** ViewModel del cambio de la propia contraseña. */
-export function useChangePassword(service: AccountService = accountService) {
+export function useChangePassword(
+  service: AccountService = accountService,
+  /** La sesión actual continúa con el token nuevo; las demás quedan cerradas por la API. */
+  renewSession: (response: LoginResponse) => void = (response) => {
+    useAuthStore().startSession(response);
+  },
+) {
   const form = reactive(initialState());
 
   const rules = {
@@ -19,10 +27,11 @@ export function useChangePassword(service: AccountService = accountService) {
   };
 
   const { loading, fieldErrors, generalError, clearErrors, submit } = useFormSubmit(async () => {
-    await service.changePassword({
+    const renewed = await service.changePassword({
       currentPassword: form.currentPassword,
       newPassword: form.newPassword,
     });
+    renewSession(renewed);
     return true;
   });
 

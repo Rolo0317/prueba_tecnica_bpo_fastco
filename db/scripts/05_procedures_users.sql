@@ -21,7 +21,7 @@ BEGIN
     SET XACT_ABORT ON;
 
     BEGIN TRY
-        SELECT UserId, Username, PasswordHash, FullName, Role
+        SELECT UserId, Username, PasswordHash, FullName, Role, PasswordChangedAt
         FROM dbo.Users
         WHERE Username = TRIM(@Username)
           AND IsActive = 1
@@ -42,7 +42,7 @@ BEGIN
     SET XACT_ABORT ON;
 
     BEGIN TRY
-        SELECT UserId, Username, PasswordHash, FullName, Role
+        SELECT UserId, Username, PasswordHash, FullName, Role, PasswordChangedAt
         FROM dbo.Users
         WHERE UserId = @UserId
           AND IsActive = 1
@@ -370,6 +370,31 @@ BEGIN
         IF @@TRANCOUNT > 0
             ROLLBACK TRANSACTION;
 
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* Estado de la sesión de un usuario: se consulta en cada petición autenticada.
+   Sin filas = usuario inactivo o eliminado (su token deja de valer de inmediato).
+   El rol vigente y la fecha del último cambio de contraseña permiten aplicar al
+   instante un cambio de rol y cerrar las sesiones abiertas tras cambiar la contraseña.
+   Busca por clave primaria: es un Clustered Index Seek de una fila. */
+CREATE OR ALTER PROCEDURE dbo.usp_Users_GetSessionState
+    @UserId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        SELECT Role, PasswordChangedAt
+        FROM dbo.Users
+        WHERE UserId = @UserId
+          AND IsActive = 1
+          AND DeletedAt IS NULL;
+    END TRY
+    BEGIN CATCH
         THROW;
     END CATCH;
 END;

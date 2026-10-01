@@ -8,7 +8,8 @@ name: task-manager
 
 services:
   db:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    # SQL Server 2022 CU27 (16.0.4295.3), fijada por digest: siempre se descarga la versión probada.
+    image: mcr.microsoft.com/mssql/server:2022-latest@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
     platform: linux/amd64 # La imagen solo existe para x86_64 (en ARM usa emulación).
     environment:
       ACCEPT_EULA: "Y"
@@ -28,7 +29,7 @@ services:
 
   db-init:
     # Reutiliza la imagen de SQL Server porque ya trae sqlcmd. Se ejecuta y termina.
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2022-latest@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
     platform: linux/amd64
     entrypoint: ["bash", "/db/init/run-scripts.sh"]
     environment:

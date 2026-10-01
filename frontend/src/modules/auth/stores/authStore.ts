@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { authService, type AuthService } from '../services/authService';
 import { sessionStore } from '../services/sessionStorage';
-import type { Credentials, Session } from '../types';
+import type { Credentials, LoginResponse, Session } from '../types';
 
 export function createAuthStore(service: AuthService = authService) {
   return defineStore('auth', () => {
@@ -16,8 +16,8 @@ export function createAuthStore(service: AuthService = authService) {
     const isAdmin = computed(() => user.value?.role === 'ADMIN');
     const token = computed(() => (isAuthenticated.value ? (session.value?.token ?? null) : null));
 
-    async function login(credentials: Credentials): Promise<void> {
-      const response = await service.login(credentials);
+    /** Guarda una sesión emitida por la API (login o renovación tras cambiar la contraseña). */
+    function startSession(response: LoginResponse): void {
       session.value = {
         token: response.token,
         expiresAt: Date.now() + response.expiresIn * 1000,
@@ -26,12 +26,16 @@ export function createAuthStore(service: AuthService = authService) {
       sessionStore.save(session.value);
     }
 
+    async function login(credentials: Credentials): Promise<void> {
+      startSession(await service.login(credentials));
+    }
+
     function logout(): void {
       session.value = null;
       sessionStore.clear();
     }
 
-    return { session, isAuthenticated, user, isAdmin, token, login, logout };
+    return { session, isAuthenticated, user, isAdmin, token, login, logout, startSession };
   });
 }
 

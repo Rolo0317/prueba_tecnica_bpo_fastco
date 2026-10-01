@@ -21,6 +21,7 @@ acceso no puede depender solo de la interfaz.
 | 6 | **Eliminación lógica** de usuarios (`Users.DeletedAt`) | `DELETE` físico | Las FK de tareas e historial apuntan al usuario; borrarlo obligaría a perder o falsear la auditoría. El usuario eliminado no inicia sesión, no aparece en la administración ni como responsable posible |
 | 7 | Al eliminar, sus tareas **abiertas** quedan sin asignar; las cerradas conservan el responsable | Reasignar automáticamente | El administrador decide a quién reasignar; el historial de lo ya cerrado se mantiene intacto |
 | 8 | Nadie se elimina a sí mismo y siempre queda ≥1 administrador activo (conteo con `UPDLOCK, HOLDLOCK`) | Validar solo en la interfaz | Evita dejar el sistema sin administración, también ante dos operaciones simultáneas |
+| 9 | La sesión se **revalida en cada petición** contra la BD (usuario activo, rol vigente y "versión" de contraseña en el token) | Confiar solo en el JWT hasta que expire | Desactivar, eliminar, cambiar el rol o la contraseña tiene efecto inmediato y no hasta 1 h después. Costo: una lectura por clave primaria por petición |
 
 ## Consecuencias
 - (+) Un agente nunca recibe datos de tareas ajenas: ni en el listado, ni en los indicadores, ni al editar o cambiar estado.

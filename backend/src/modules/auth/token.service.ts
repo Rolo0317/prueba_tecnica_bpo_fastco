@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AppConfig } from '../../config/env.js';
 import { UnauthorizedError } from '../../core/errors.js';
 import { ROLES } from '../users/user.types.js';
-import type { AuthUser, IssuedToken, TokenService } from './auth.types.js';
+import type { AuthUser, IssuedToken, TokenService, VerifiedToken } from './auth.types.js';
 
 const ALGORITHM = 'HS256';
 const ISSUER = 'task-manager-api';
@@ -15,6 +15,7 @@ const payloadSchema = z.object({
   username: z.string(),
   name: z.string(),
   role: z.enum(ROLES),
+  pwv: z.number().int().nonnegative(),
 });
 
 /** Convierte "15m", "1h", "7d"… a segundos (el formato ya viene validado en env.ts). */
@@ -30,8 +31,13 @@ export class JwtTokenService implements TokenService {
     this.expiresInSeconds = durationToSeconds(config.jwtExpiresIn);
   }
 
-  issue(user: AuthUser): IssuedToken {
-    const claims = { username: user.username, name: user.fullName, role: user.role };
+  issue(user: AuthUser, passwordVersion: number): IssuedToken {
+    const claims = {
+      username: user.username,
+      name: user.fullName,
+      role: user.role,
+      pwv: passwordVersion,
+    };
     const token = jwt.sign(claims, this.config.jwtSecret, {
       algorithm: ALGORITHM,
       subject: String(user.id),
@@ -42,7 +48,7 @@ export class JwtTokenService implements TokenService {
     return { token, expiresIn: this.expiresInSeconds };
   }
 
-  verify(token: string): AuthUser {
+  verify(token: string): VerifiedToken {
     try {
       const decoded = jwt.verify(token, this.config.jwtSecret, {
         algorithms: [ALGORITHM],
@@ -51,10 +57,13 @@ export class JwtTokenService implements TokenService {
       });
       const payload = payloadSchema.parse(decoded);
       return {
-        id: Number(payload.sub),
-        username: payload.username,
-        fullName: payload.name,
-        role: payload.role,
+        user: {
+          id: Number(payload.sub),
+          username: payload.username,
+          fullName: payload.name,
+          role: payload.role,
+        },
+        passwordVersion: payload.pwv,
       };
     } catch {
       throw new UnauthorizedError('La sesión no es válida o expiró. Inicia sesión de nuevo.');

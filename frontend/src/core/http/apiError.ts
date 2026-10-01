@@ -18,7 +18,7 @@ export class ApiError extends Error {
 
 const FALLBACK_MESSAGES: Readonly<Record<number, string>> = {
   0: 'No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.',
-  401: 'Tu sesión expiró. Inicia sesión de nuevo.',
+  401: 'Tu sesión expiró o dejó de ser válida. Inicia sesión de nuevo.',
   404: 'El recurso solicitado no existe.',
   408: 'El servidor tardó demasiado en responder. Intenta de nuevo.',
   429: 'Demasiados intentos. Espera un momento e intenta de nuevo.',

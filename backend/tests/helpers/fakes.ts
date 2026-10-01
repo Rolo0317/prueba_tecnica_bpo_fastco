@@ -7,7 +7,11 @@ import {
   ValidationError,
 } from '../../src/core/errors.js';
 import { AuthService } from '../../src/modules/auth/auth.service.js';
-import type { PasswordHasher } from '../../src/modules/auth/auth.types.js';
+import {
+  passwordVersionOf,
+  type PasswordHasher,
+  type SessionState,
+} from '../../src/modules/auth/auth.types.js';
 import { JwtTokenService } from '../../src/modules/auth/token.service.js';
 import { TaskService } from '../../src/modules/tasks/task.service.js';
 import type {
@@ -148,14 +152,22 @@ export class InMemoryUserRepository implements UserRepository {
     }
   }
 
+  findSessionState(userId: number): Promise<SessionState | null> {
+    const user = this.users.find((u) => u.id === userId && u.isActive && !u.deleted);
+    return Promise.resolve(
+      user ? { role: user.role, passwordVersion: passwordVersionOf(user.passwordChangedAt) } : null,
+    );
+  }
+
   private credentials({
     id,
     username,
     fullName,
     role,
     passwordHash,
+    passwordChangedAt,
   }: StoredUser): UserWithCredentials {
-    return { id, username, fullName, role, passwordHash };
+    return { id, username, fullName, role, passwordHash, passwordChangedAt };
   }
 
   private publicView({ passwordHash: _hash, deleted: _deleted, ...user }: StoredUser): ManagedUser {
@@ -369,6 +381,7 @@ export async function buildTestContext(): Promise<TestContext> {
     taskService: new TaskService(tasks),
     userService: new UserService(users, hasher),
     tokenService,
+    sessionStore: users,
     checkDatabase: () => (databaseUp.value ? Promise.resolve() : Promise.reject(new Error('down'))),
     failedAttemptsLimit: { windowMs: 60_000, limit: 3 },
   });
@@ -377,14 +390,17 @@ export async function buildTestContext(): Promise<TestContext> {
 }
 
 /** Token del administrador (id 1) por defecto, o del agente (id 2) con role 'AGENT'. */
+/**
+ * Token del administrador (id 1) por defecto, o del agente (id 2) con role 'AGENT'.
+ * Lleva la versión de contraseña vigente en ese momento, como lo haría un login real.
+ */
 export function bearerFor(context: TestContext, role: Role = 'ADMIN'): string {
   const user = role === 'ADMIN' ? TEST_USER : TEST_AGENT;
   const id = role === 'ADMIN' ? 1 : 2;
-  const { token } = context.tokenService.issue({
-    id,
-    username: user.username,
-    fullName: user.fullName,
-    role,
-  });
+  const stored = context.users.users.find((u) => u.id === id);
+  const { token } = context.tokenService.issue(
+    { id, username: user.username, fullName: user.fullName, role },
+    passwordVersionOf(stored?.passwordChangedAt ?? null),
+  );
   return `Bearer ${token}`;
 }

@@ -173,6 +173,29 @@ describe('useUserForm', () => {
 });
 
 describe('useChangePassword', () => {
+  it('al cambiar la contraseña continúa con la sesión nueva que devuelve la API', async () => {
+    const renewed = {
+      token: 'nuevo',
+      tokenType: 'Bearer' as const,
+      expiresIn: 3600,
+      user: { id: 1, username: 'u', fullName: 'U', role: 'AGENT' as const },
+    };
+    const renewSession = vi.fn();
+    const { form, submit } = useChangePassword(
+      { changePassword: vi.fn().mockResolvedValue(renewed) },
+      renewSession,
+    );
+    Object.assign(form, {
+      currentPassword: 'Actual-2026x',
+      newPassword: 'Nueva-2026xy',
+      confirmPassword: 'Nueva-2026xy',
+    });
+
+    await submit();
+
+    expect(renewSession).toHaveBeenCalledWith(renewed);
+  });
+
   it('valida la confirmación y que la nueva sea distinta de la actual', () => {
     const { form, rules } = useChangePassword({ changePassword: vi.fn() });
     Object.assign(form, {

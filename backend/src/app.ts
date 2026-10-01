@@ -11,7 +11,7 @@ import { requireRole } from './middlewares/authorize.js';
 import type { FailedAttemptsLimit } from './middlewares/rate-limit.js';
 import { createAuthRouter } from './modules/auth/auth.routes.js';
 import type { AuthService } from './modules/auth/auth.service.js';
-import type { TokenService } from './modules/auth/auth.types.js';
+import type { SessionStore, TokenService } from './modules/auth/auth.types.js';
 import { createHealthRouter, type HealthCheck } from './modules/health/health.routes.js';
 import { TaskController } from './modules/tasks/task.controller.js';
 import { createTaskRouter, createTaskStatusRouter } from './modules/tasks/task.routes.js';
@@ -27,14 +27,17 @@ export interface AppDependencies {
   taskService: TaskService;
   userService: UserService;
   tokenService: TokenService;
+  sessionStore: SessionStore;
   checkDatabase: HealthCheck;
   failedAttemptsLimit?: FailedAttemptsLimit;
 }
 
 function createApiRouter(deps: AppDependencies): Router {
-  const authenticate = createAuthenticate(deps.tokenService);
+  const authenticate = createAuthenticate(deps.tokenService, deps.sessionStore);
   const taskController = new TaskController(deps.taskService);
-  const userController = new UserController(deps.userService);
+  const userController = new UserController(deps.userService, (userId) =>
+    deps.authService.issueSession(userId),
+  );
   const api = Router();
 
   api.use(

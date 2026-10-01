@@ -150,13 +150,14 @@ describe('Cambio de la propia contraseña (cualquier rol)', () => {
   const changeOwn = (token: string, body: object) =>
     request(ctx.app).put('/api/v1/account/password').set('Authorization', token).send(body);
 
-  it('204: un agente cambia su contraseña y la anterior deja de funcionar', async () => {
+  it('200: un agente cambia su contraseña, recibe una sesión nueva y la anterior deja de funcionar', async () => {
     const res = await changeOwn(asAgent(), {
       currentPassword: TEST_AGENT.password,
       newPassword: 'Nueva-Clave-2026',
     });
 
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ tokenType: 'Bearer', user: { id: 2 } });
     expect((await login(TEST_AGENT.username, TEST_AGENT.password)).status).toBe(401);
     expect((await login(TEST_AGENT.username, 'Nueva-Clave-2026')).status).toBe(200);
   });

@@ -1,5 +1,6 @@
 import sql from 'mssql';
 import type { ProcedureRunner } from '../../database/procedure-executor.js';
+import { passwordVersionOf, type SessionState } from '../auth/auth.types.js';
 import type {
   AssignableUser,
   CreateUserInput,
@@ -18,6 +19,14 @@ interface CredentialsRow {
   FullName: string;
   Role: Role;
   PasswordHash: string;
+  PasswordChangedAt: Date | null;
+}
+
+type AssignableRow = Omit<CredentialsRow, 'PasswordHash' | 'PasswordChangedAt'>;
+
+interface SessionRow {
+  Role: Role;
+  PasswordChangedAt: Date | null;
 }
 
 /** Fila de dbo.vw_Users. */
@@ -37,6 +46,7 @@ const toCredentials = (row: CredentialsRow): UserWithCredentials => ({
   fullName: row.FullName,
   role: row.Role,
   passwordHash: row.PasswordHash,
+  passwordChangedAt: row.PasswordChangedAt?.toISOString() ?? null,
 });
 
 const toManagedUser = (row: UserRow): ManagedUser => ({
@@ -64,6 +74,19 @@ export class SqlUserRepository implements UserRepository {
       inputs: { UserId: { type: sql.Int, value: userId } },
     });
     return rows[0] ? toCredentials(rows[0]) : null;
+  }
+
+  async findSessionState(userId: number): Promise<SessionState | null> {
+    const { rows } = await this.db.execute<SessionRow>('dbo.usp_Users_GetSessionState', {
+      inputs: { UserId: { type: sql.Int, value: userId } },
+    });
+    const [row] = rows;
+    return row
+      ? {
+          role: row.Role,
+          passwordVersion: passwordVersionOf(row.PasswordChangedAt?.toISOString() ?? null),
+        }
+      : null;
   }
 
   async list(page: number, pageSize: number): Promise<UserPage> {
@@ -122,9 +145,7 @@ export class SqlUserRepository implements UserRepository {
   }
 
   async listAssignable(): Promise<AssignableUser[]> {
-    const { rows } = await this.db.execute<Omit<CredentialsRow, 'PasswordHash'>>(
-      'dbo.usp_Users_ListAssignable',
-    );
+    const { rows } = await this.db.execute<AssignableRow>('dbo.usp_Users_ListAssignable');
     return rows.map((row) => ({
       id: row.UserId,
       username: row.Username,

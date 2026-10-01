@@ -1,4 +1,5 @@
 import { http, type ApiClient } from '@/core/http';
+import type { LoginResponse } from '../types';
 
 export interface ChangePasswordPayload {
   currentPassword: string;
@@ -7,7 +8,9 @@ export interface ChangePasswordPayload {
 
 export function createAccountService(client: ApiClient) {
   return {
-    changePassword: (payload: ChangePasswordPayload) => client.put('/account/password', payload),
+    /** Devuelve una sesión nueva: la API invalida las anteriores al cambiar la contraseña. */
+    changePassword: (payload: ChangePasswordPayload) =>
+      client.put<LoginResponse>('/account/password', payload),
   };
 }
 

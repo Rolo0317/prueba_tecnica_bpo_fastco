@@ -34,7 +34,8 @@ const { credentials, sessionExpired, loading, error, submit } = useLoginForm();
           density="compact"
           class="mb-4"
         >
-          Tu sesión expiró. Inicia sesión de nuevo para continuar.
+          Tu sesión expiró o dejó de ser válida (por ejemplo, por un cambio de contraseña o de
+          permisos). Inicia sesión de nuevo para continuar.
         </v-alert>
         <v-alert
           v-if="error"

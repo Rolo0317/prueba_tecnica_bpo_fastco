@@ -206,7 +206,7 @@ Base: `/api/v1`. Todas las rutas de tareas requieren `Authorization: Bearer <tok
 | `POST` | `/tasks/:id/notes` `{ body }` (registrar avance) | 201 | 400 · 401 · 404 |
 | `GET` | `/tasks/stats?today=AAAA-MM-DD` | 200 `{ total, overdue, dueToday, highPriorityOpen, byStatus }` | 400 · 401 |
 | `GET` | `/task-statuses` | 200 | 401 |
-| `PUT` | `/account/password` (cualquier rol) | 204 | 400 · 401 · 429 |
+| `PUT` | `/account/password` (cualquier rol) | 200 sesión nueva `{ token, … }` (las demás quedan cerradas) | 400 · 401 · 429 |
 | `GET` | `/users?page=&pageSize=` (solo ADMIN) | 200 | 401 · 403 |
 | `POST` | `/users` (solo ADMIN) | 201 | 400 · 403 · 409 |
 | `GET` | `/users/assignable` (solo ADMIN, responsables posibles) | 200 | 401 · 403 |
@@ -279,6 +279,7 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
 | Contraseñas con bcrypt; la BD rechaza cualquier valor que no sea un hash bcrypt | `password-hasher.ts`, `usp_Users_Create` |
 | JWT con algoritmo fijo (HS256), emisor, audiencia y expiración | `token.service.ts` |
 | Login: mismo mensaje y tiempo de respuesta si el usuario no existe; *rate limit* de intentos fallidos | `auth.service.ts`, `auth.routes.ts` |
+| **Sesiones revalidadas en cada petición** (`usp_Users_GetSessionState`, búsqueda por clave primaria): desactivar o eliminar a un usuario lo saca de inmediato, un cambio de rol aplica en la siguiente petición y cambiar o restablecer la contraseña cierra las sesiones abiertas (el token lleva la "versión" de la contraseña) | `authenticate.ts` |
 | Validación de toda entrada con zod (campos desconocidos rechazados) | `*.schemas.ts` |
 | Errores 500 sin detalles internos; logs estructurados sin contraseñas ni tokens (`[REDACTED]`) | `error-handler.ts`, `logger.ts` |
 | `helmet`, CORS con lista blanca, límite de tamaño del cuerpo | `app.ts` |
@@ -293,9 +294,9 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
 
 | Suite | Cantidad | Comando |
 |---|---|---|
-| Backend: unitarias + integración HTTP (supertest) | 95 | `cd backend && npm ci && npm test` |
-| Frontend: unitarias (composables, cliente HTTP, store, router, componentes) | 77 | `cd frontend && npm ci && npm test` |
-| End-to-end (Playwright, escritorio y móvil) contra `docker compose` | 44 | ver abajo |
+| Backend: unitarias + integración HTTP (supertest) | 100 | `cd backend && npm ci && npm test` |
+| Frontend: unitarias (composables, cliente HTTP, store, router, componentes) | 78 | `cd frontend && npm ci && npm test` |
+| End-to-end (Playwright, escritorio y móvil) contra `docker compose` | 48 | ver abajo |
 
 ```bash
 # Las pruebas hacen logins fallidos a propósito: se sube el límite anti fuerza bruta solo para esta corrida.
@@ -368,15 +369,15 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
 **Seguridad**
 - Secretos en un gestor (Azure Key Vault, AWS Secrets Manager o Docker/Kubernetes secrets) en lugar de un archivo `.env`, con rotación.
 - HTTPS en todo el recorrido: TLS en el balanceador/nginx con HSTS, y certificado válido en SQL Server (`DB_TRUST_SERVER_CERTIFICATE=false`).
-- Token de acceso corto + *refresh token* en cookie `HttpOnly`, `Secure`, `SameSite`, y revocación de sesiones (en vez de `sessionStorage`).
-- Los roles `ADMIN` / `AGENT`, la asignación y el seguimiento ya existen; agregaría un rol de supervisor por equipo, adjuntos en los avances (con antivirus y almacenamiento de objetos), SSO corporativo (Entra ID / OAuth2) con MFA, cambio obligatorio de la contraseña inicial y revocación inmediata de sesiones al desactivar un usuario o cambiar su contraseña (versión de token validada en cada petición).
+- Token de acceso corto + *refresh token* en cookie `HttpOnly`, `Secure`, `SameSite` (en vez de `sessionStorage`). La revocación ya existe (sesión revalidada en cada petición); con mucho tráfico, ese estado se cachearía unos segundos en Redis.
+- Los roles `ADMIN` / `AGENT`, la asignación y el seguimiento ya existen; agregaría un rol de supervisor por equipo, adjuntos en los avances (con antivirus y almacenamiento de objetos), SSO corporativo (Entra ID / OAuth2) con MFA y cambio obligatorio de la contraseña inicial.
 - *Rate limit* compartido entre instancias (Redis), WAF, escaneo de imágenes (Trivy) y de dependencias (Dependabot/Renovate) en el pipeline, y pruebas de penetración.
 - Cumplimiento de la **Ley 1581 de 2012 (Habeas Data)** y alineación con ISO 27001: clasificación de datos, retención y auditoría de accesos.
 
 **Base de datos**
 - Migraciones versionadas (Flyway, DbUp o sqlpackage) en lugar de scripts de inicialización, ejecutadas por el pipeline.
 - Alta disponibilidad (Always On AG o Azure SQL), backups completos/diferenciales/de log con **pruebas de restauración** periódicas y objetivos RPO/RTO definidos.
-- Versión de imagen fijada (CU específico, no `2022-latest`) y edición con licencia (no Developer).
+- La imagen ya está fijada por *digest* (SQL Server 2022 CU27); en producción, edición con licencia (no Developer) y un proceso para aplicar cada CU nuevo tras probarlo.
 
 **Operación**
 - CI/CD: lint, pruebas unitarias, de integración y E2E, build de imágenes firmadas y despliegue gradual (*blue/green* o *canary*) con *rollback* automático.

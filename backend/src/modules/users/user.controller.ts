@@ -10,10 +10,17 @@ import type {
   setUserStatusSchemas,
   updateUserSchemas,
 } from './user.schemas.js';
+import type { LoginResult } from '../auth/auth.types.js';
 import type { UserService } from './user.service.js';
 
+/** Emite una sesión nueva (la anterior queda invalidada al cambiar la contraseña). */
+export type SessionIssuer = (userId: number) => Promise<LoginResult>;
+
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly issueSession: SessionIssuer,
+  ) {}
 
   list: ValidatedHandler<typeof listUsersSchemas> = async ({ query }, _req, res) => {
     res.status(200).json(await this.userService.list(query.page, query.pageSize));
@@ -59,11 +66,9 @@ export class UserController {
     req,
     res,
   ) => {
-    await this.userService.changeOwnPassword(
-      requireAuthUser(req).id,
-      body.currentPassword,
-      body.newPassword,
-    );
-    res.status(204).end();
+    const userId = requireAuthUser(req).id;
+    await this.userService.changeOwnPassword(userId, body.currentPassword, body.newPassword);
+    // Las demás sesiones de este usuario quedan cerradas; esta continúa con un token nuevo.
+    res.status(200).json(await this.issueSession(userId));
   };
 }

@@ -1,3 +1,5 @@
+import type { SessionStore } from '../auth/auth.types.js';
+
 export const ROLES = ['ADMIN', 'AGENT'] as const;
 export type Role = (typeof ROLES)[number];
 
@@ -11,6 +13,8 @@ export interface User {
 
 export interface UserWithCredentials extends User {
   passwordHash: string;
+  /** ISO; null = la contraseña inicial nunca se ha cambiado. */
+  passwordChangedAt: string | null;
 }
 
 /** Usuario tal como lo ve el módulo de administración. */
@@ -48,7 +52,7 @@ export interface SetUserActiveInput {
 /** Usuario que puede ser responsable de una tarea. */
 export type AssignableUser = User;
 
-export interface UserRepository {
+export interface UserRepository extends SessionStore {
   findByUsername(username: string): Promise<UserWithCredentials | null>;
   findCredentialsById(userId: number): Promise<UserWithCredentials | null>;
   list(page: number, pageSize: number): Promise<UserPage>;

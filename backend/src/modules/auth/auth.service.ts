@@ -1,6 +1,12 @@
 import { UnauthorizedError } from '../../core/errors.js';
 import type { UserRepository } from '../users/user.types.js';
-import type { LoginResult, PasswordHasher, TokenService } from './auth.types.js';
+import type { UserWithCredentials } from '../users/user.types.js';
+import {
+  passwordVersionOf,
+  type LoginResult,
+  type PasswordHasher,
+  type TokenService,
+} from './auth.types.js';
 
 const INVALID_CREDENTIALS = 'Usuario o contraseña incorrectos.';
 
@@ -28,12 +34,26 @@ export class AuthService {
       throw new UnauthorizedError(INVALID_CREDENTIALS);
     }
 
+    return this.startSession(user);
+  }
+
+  /** Nueva sesión para un usuario activo (p. ej. tras cambiar su propia contraseña). */
+  async issueSession(userId: number): Promise<LoginResult> {
+    const user = await this.users.findCredentialsById(userId);
+    if (!user) {
+      throw new UnauthorizedError('Tu sesión ya no es válida. Inicia sesión de nuevo.');
+    }
+    return this.startSession(user);
+  }
+
+  private startSession(user: UserWithCredentials): LoginResult {
     const authUser = {
       id: user.id,
       username: user.username,
       fullName: user.fullName,
       role: user.role,
     };
-    return { ...this.tokens.issue(authUser), tokenType: 'Bearer', user: authUser };
+    const issued = this.tokens.issue(authUser, passwordVersionOf(user.passwordChangedAt));
+    return { ...issued, tokenType: 'Bearer', user: authUser };
   }
 }
