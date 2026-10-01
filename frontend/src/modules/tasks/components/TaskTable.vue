@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { useDisplay } from 'vuetify';
 import { PAGE_SIZE_OPTIONS } from '../constants';
 import type { Task, TaskStatus } from '../types';
-import { mdiPencilOutline } from '@mdi/js';
+import { mdiCommentTextOutline, mdiPencilOutline } from '@mdi/js';
 import { formatDateTime } from '@/shared/utils/dates';
 import { initialsOf } from '@/shared/utils/text';
 import TaskDueDate from './TaskDueDate.vue';
@@ -30,6 +30,7 @@ const emit = defineEmits<{
   'update:pageSize': [pageSize: number];
   'change-status': [task: Task, status: string];
   edit: [task: Task];
+  open: [task: Task];
   create: [];
   'clear-filter': [];
 }>();
@@ -85,7 +86,18 @@ const isFinal = (task: Task) => props.transitionsFor(task.status.code).length ==
 
     <template #[`item.title`]="{ item }">
       <div class="task-title">
-        <span class="task-title__text">{{ item.title }}</span>
+        <button
+          type="button"
+          class="task-title__open"
+          :aria-label="`Ver seguimiento de ${item.title}${item.notesCount ? `, ${item.notesCount} avances` : ''}`"
+          @click="emit('open', item)"
+        >
+          <span class="task-title__text">{{ item.title }}</span>
+          <span v-if="item.notesCount > 0" class="task-title__notes" aria-hidden="true">
+            <v-icon :icon="mdiCommentTextOutline" size="14" />
+            {{ item.notesCount }}
+          </span>
+        </button>
         <span v-if="item.description" class="task-title__description text-medium-emphasis">
           {{ item.description }}
         </span>
@@ -163,8 +175,31 @@ const isFinal = (task: Task) => props.transitionsFor(task.status.code).length ==
   padding-block: 8px;
   max-width: 520px;
 }
+.task-title__open {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.task-title__open:hover .task-title__text {
+  color: rgb(var(--v-theme-primary));
+  text-decoration: underline;
+}
 .task-title__text {
   font-weight: 500;
+}
+.task-title__notes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.75rem;
+  color: rgb(var(--v-theme-on-surface), 0.7);
 }
 .task-title__description {
   font-size: 0.8125rem;

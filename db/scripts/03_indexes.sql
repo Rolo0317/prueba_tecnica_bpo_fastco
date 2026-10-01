@@ -88,3 +88,25 @@ BEGIN
         ON dbo.TaskStatusHistory (TaskId, ChangedAt);
 END;
 GO
+
+/* Línea de tiempo de una tarea: avances y reasignaciones en orden cronológico.
+   También soportan las FK hacia Tasks. */
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = N'IX_TaskNotes_TaskId_CreatedAt' AND object_id = OBJECT_ID(N'dbo.TaskNotes')
+)
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_TaskNotes_TaskId_CreatedAt
+        ON dbo.TaskNotes (TaskId, CreatedAt);
+END;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = N'IX_TaskAssignmentHistory_TaskId_ChangedAt' AND object_id = OBJECT_ID(N'dbo.TaskAssignmentHistory')
+)
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_TaskAssignmentHistory_TaskId_ChangedAt
+        ON dbo.TaskAssignmentHistory (TaskId, ChangedAt);
+END;
+GO

@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue';
 import { toApiError } from '@/core/http';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 import { useNotifier } from '@/shared/composables/useNotifier';
+import TaskFollowUpDrawer from '../components/TaskFollowUpDrawer.vue';
 import TaskFormDialog from '../components/TaskFormDialog.vue';
 import TaskStatsPanel from '../components/TaskStatsPanel.vue';
 import TaskStatusFilter from '../components/TaskStatusFilter.vue';
@@ -33,11 +34,24 @@ const {
   create,
   update,
   changeStatus,
+  replaceTask,
 } = useTasks();
 
 const formOpen = ref(false);
 const editing = ref<Task | null>(null);
 const formActions = { create, update };
+
+/** Seguimiento: se guarda el id y se lee la versión más reciente de la tarea en la lista. */
+const followUpOpen = ref(false);
+const followUpSnapshot = ref<Task | null>(null);
+const followUpTask = computed(
+  () => tasks.value.find((t) => t.id === followUpSnapshot.value?.id) ?? followUpSnapshot.value,
+);
+const followUpIsFinal = computed(() =>
+  followUpTask.value
+    ? statusCatalog.transitionsFor(followUpTask.value.status.code).length === 0
+    : false,
+);
 
 /** Estas reglas solo deciden qué se muestra; la API y la BD las vuelven a validar. */
 const isAdmin = computed(() => auth.isAdmin);
@@ -57,6 +71,17 @@ onMounted(() => {
 function openForm(task: Task | null): void {
   editing.value = task;
   formOpen.value = true;
+}
+
+function openFollowUp(task: Task): void {
+  followUpSnapshot.value = task;
+  followUpOpen.value = true;
+}
+
+/** El contador de avances de la fila se actualiza sin recargar el listado. */
+function onNoteAdded(task: Task): void {
+  const current = tasks.value.find((t) => t.id === task.id) ?? task;
+  replaceTask({ ...current, notesCount: current.notesCount + 1 });
 }
 
 /** Listado e indicadores se actualizan juntos para que nunca muestren datos distintos. */
@@ -150,6 +175,7 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
         @update:page-size="setPageSize"
         @change-status="onChangeStatus"
         @edit="openForm"
+        @open="openFollowUp"
         @create="openForm(null)"
         @clear-filter="setStatus(null)"
       />
@@ -162,6 +188,13 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
       :can-assign="isAdmin"
       :assignees="assigneeCatalog.assignees.value"
       @saved="onSaved"
+    />
+
+    <TaskFollowUpDrawer
+      v-model="followUpOpen"
+      :task="followUpTask"
+      :is-final="followUpIsFinal"
+      @note-added="onNoteAdded"
     />
   </section>
 </template>

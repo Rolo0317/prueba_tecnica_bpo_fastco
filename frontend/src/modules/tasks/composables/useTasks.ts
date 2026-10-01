@@ -109,5 +109,6 @@ export function useTasks(service: TaskService = taskService) {
     create,
     update,
     changeStatus,
+    replaceTask,
   };
 }

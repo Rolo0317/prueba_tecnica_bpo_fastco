@@ -45,6 +45,7 @@ export function buildTask(overrides: Partial<Task> = {}): Task {
     dueDate: null,
     createdBy: { id: 1, name: 'Agente' },
     assignedTo: null,
+    notesCount: 0,
     createdAt: '2026-10-01T10:00:00.000Z',
     updatedAt: '2026-10-01T10:00:00.000Z',
     ...overrides,

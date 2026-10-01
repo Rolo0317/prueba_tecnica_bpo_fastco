@@ -136,7 +136,7 @@ BEGIN
         )
         SELECT
             d.TaskId, d.Title, d.Description, d.StatusCode, d.StatusName, d.Priority, d.DueDate,
-            d.CreatedById, d.CreatedByName, d.AssignedToId, d.AssignedToName, d.CreatedAt, d.UpdatedAt
+            d.CreatedById, d.CreatedByName, d.AssignedToId, d.AssignedToName, d.NotesCount, d.CreatedAt, d.UpdatedAt
         FROM PageKeys AS k
         INNER JOIN dbo.vw_TaskDetails AS d ON d.TaskId = k.TaskId
         ORDER BY k.CreatedAt DESC, k.TaskId DESC
@@ -196,11 +196,15 @@ BEGIN
             INSERT INTO dbo.TaskStatusHistory (TaskId, FromStatusId, ToStatusId, ChangedBy)
             VALUES (@TaskId, NULL, @PendingStatusId, @CreatedBy);
 
+            IF @AssignedTo IS NOT NULL
+                INSERT INTO dbo.TaskAssignmentHistory (TaskId, FromUserId, ToUserId, ChangedBy)
+                VALUES (@TaskId, NULL, @AssignedTo, @CreatedBy);
+
         COMMIT TRANSACTION;
 
         SELECT
             TaskId, Title, Description, StatusCode, StatusName, Priority, DueDate,
-            CreatedById, CreatedByName, AssignedToId, AssignedToName, CreatedAt, UpdatedAt
+            CreatedById, CreatedByName, AssignedToId, AssignedToName, NotesCount, CreatedAt, UpdatedAt
         FROM dbo.vw_TaskDetails
         WHERE TaskId = @TaskId;
     END TRY
@@ -228,7 +232,8 @@ CREATE OR ALTER PROCEDURE dbo.usp_Tasks_Update
     @DueDate     DATE           = NULL,
     @AssignedTo     INT            = NULL,
     @ChangeAssignee BIT            = 0,
-    @ActorId        INT            = NULL
+    @ActorId        INT            = NULL,
+    @ChangedBy      INT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -278,11 +283,15 @@ BEGIN
                 UpdatedAt = SYSUTCDATETIME()
             WHERE TaskId = @TaskId;
 
+            IF ISNULL(@AssignedTo, -1) <> ISNULL(@CurrentAssignee, -1)
+                INSERT INTO dbo.TaskAssignmentHistory (TaskId, FromUserId, ToUserId, ChangedBy)
+                VALUES (@TaskId, @CurrentAssignee, @AssignedTo, @ChangedBy);
+
         COMMIT TRANSACTION;
 
         SELECT
             TaskId, Title, Description, StatusCode, StatusName, Priority, DueDate,
-            CreatedById, CreatedByName, AssignedToId, AssignedToName, CreatedAt, UpdatedAt
+            CreatedById, CreatedByName, AssignedToId, AssignedToName, NotesCount, CreatedAt, UpdatedAt
         FROM dbo.vw_TaskDetails
         WHERE TaskId = @TaskId;
     END TRY
@@ -361,7 +370,7 @@ BEGIN
 
         SELECT
             TaskId, Title, Description, StatusCode, StatusName, Priority, DueDate,
-            CreatedById, CreatedByName, AssignedToId, AssignedToName, CreatedAt, UpdatedAt
+            CreatedById, CreatedByName, AssignedToId, AssignedToName, NotesCount, CreatedAt, UpdatedAt
         FROM dbo.vw_TaskDetails
         WHERE TaskId = @TaskId;
     END TRY

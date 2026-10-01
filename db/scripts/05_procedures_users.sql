@@ -340,15 +340,22 @@ BEGIN
                     THROW 50409, N'Debe quedar al menos un administrador activo.', 1;
             END;
 
+            DECLARE @Released TABLE (TaskId INT NOT NULL PRIMARY KEY);
+
             UPDATE t
             SET AssignedTo = NULL,
                 UpdatedAt = SYSUTCDATETIME()
+            OUTPUT inserted.TaskId INTO @Released (TaskId)
             FROM dbo.Tasks AS t
             INNER JOIN dbo.TaskStatuses AS s ON s.StatusId = t.StatusId
             WHERE t.AssignedTo = @UserId
               AND s.IsFinal = 0;
 
             SET @Unassigned = @@ROWCOUNT;
+
+            INSERT INTO dbo.TaskAssignmentHistory (TaskId, FromUserId, ToUserId, ChangedBy)
+            SELECT TaskId, @UserId, NULL, @ChangedBy
+            FROM @Released;
 
             UPDATE dbo.Users
             SET IsActive = 0,

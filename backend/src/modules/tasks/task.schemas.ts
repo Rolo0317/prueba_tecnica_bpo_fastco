@@ -58,6 +58,19 @@ export const taskStatsSchemas = {
   }),
 };
 
+export const taskTimelineSchemas = { params: taskIdParams };
+
+export const addTaskNoteSchemas = {
+  params: taskIdParams,
+  body: z.strictObject({
+    body: z
+      .string()
+      .trim()
+      .min(1, 'Escribe el avance.')
+      .max(1000, 'El avance admite máximo 1000 caracteres.'),
+  }),
+};
+
 export const changeTaskStatusSchemas = {
   params: taskIdParams,
   body: z.strictObject({ status: statusCode }),

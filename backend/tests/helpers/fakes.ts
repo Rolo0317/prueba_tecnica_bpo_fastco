@@ -17,8 +17,11 @@ import type {
   Task,
   TaskPage,
   TaskRepository,
+  AddTaskNoteInput,
+  TaskNote,
   TaskStatsSnapshot,
   TaskStatus,
+  TimelineEvent,
   UpdateTaskInput,
   ViewerScope,
 } from '../../src/modules/tasks/task.types.js';
@@ -180,6 +183,7 @@ const STATUSES: TaskStatus[] = [
 /** Reproduce las reglas de los Stored Procedures para probar la API sin SQL Server. */
 export class InMemoryTaskRepository implements TaskRepository {
   readonly tasks: Task[] = [];
+  readonly notes: (TaskNote & { taskId: number })[] = [];
 
   /** Mismo criterio que la BD: null = administrador; un id = asignadas o creadas por él. */
   private visibleTo(viewerId: ViewerScope | undefined): Task[] {
@@ -215,6 +219,7 @@ export class InMemoryTaskRepository implements TaskRepository {
         input.assignedTo === null
           ? null
           : { id: input.assignedTo, name: `Usuario ${input.assignedTo}` },
+      notesCount: 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -254,6 +259,44 @@ export class InMemoryTaskRepository implements TaskRepository {
 
   listStatuses(): Promise<TaskStatus[]> {
     return Promise.resolve(STATUSES);
+  }
+
+  addNote({ taskId, body, createdBy, viewerId }: AddTaskNoteInput): Promise<TaskNote> {
+    const task = this.visibleTo(viewerId).find((t) => t.id === taskId);
+    if (!task) return Promise.reject(new NotFoundError('La tarea no existe.'));
+    const note = {
+      taskId,
+      id: this.notes.length + 1,
+      body: body.trim(),
+      author: { id: createdBy, name: `Usuario ${createdBy}` },
+      createdAt: new Date().toISOString(),
+    };
+    this.notes.push(note);
+    task.notesCount += 1;
+    return Promise.resolve(note);
+  }
+
+  /** Versión simplificada: creación + avances (suficiente para probar la API). */
+  timeline(taskId: number, viewerId: ViewerScope): Promise<TimelineEvent[]> {
+    const task = this.visibleTo(viewerId).find((t) => t.id === taskId);
+    if (!task) return Promise.reject(new NotFoundError('La tarea no existe.'));
+    const created: TimelineEvent = {
+      kind: 'CREATED',
+      id: `CREATED-${String(task.id)}`,
+      occurredAt: task.createdAt,
+      actor: task.createdBy,
+      status: { code: 'PENDING', name: 'Pendiente' },
+    };
+    const notes: TimelineEvent[] = this.notes
+      .filter((n) => n.taskId === taskId)
+      .map((n) => ({
+        kind: 'NOTE',
+        id: `NOTE-${String(n.id)}`,
+        occurredAt: n.createdAt,
+        actor: n.author,
+        body: n.body,
+      }));
+    return Promise.resolve([created, ...notes]);
   }
 
   stats(today: string | null, viewerId?: ViewerScope): Promise<TaskStatsSnapshot> {

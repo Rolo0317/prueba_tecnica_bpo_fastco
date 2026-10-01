@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { ForbiddenError } from '../../src/core/errors.js';
-import { toTask, toTaskStatus, type TaskRow } from '../../src/modules/tasks/task.mapper.js';
+import {
+  toTask,
+  toTaskStatus,
+  toTimelineEvent,
+  type TaskRow,
+} from '../../src/modules/tasks/task.mapper.js';
 import { createTaskSchemas, listTasksSchemas } from '../../src/modules/tasks/task.schemas.js';
 import { TaskService } from '../../src/modules/tasks/task.service.js';
 import { InMemoryTaskRepository } from '../helpers/fakes.js';
@@ -20,6 +25,7 @@ describe('task.mapper', () => {
     CreatedByName: 'Agente Uno',
     AssignedToId: 3,
     AssignedToName: 'Agente Dos',
+    NotesCount: 4,
     CreatedAt: new Date('2026-10-01T13:45:00.000Z'),
     UpdatedAt: new Date('2026-10-01T13:45:00.000Z'),
   };
@@ -34,6 +40,7 @@ describe('task.mapper', () => {
       dueDate: '2026-10-15',
       createdBy: { id: 2, name: 'Agente Uno' },
       assignedTo: { id: 3, name: 'Agente Dos' },
+      notesCount: 4,
       createdAt: '2026-10-01T13:45:00.000Z',
       updatedAt: '2026-10-01T13:45:00.000Z',
     });
@@ -170,5 +177,52 @@ describe('TaskService', () => {
 
     expect((await service.stats(null, agent)).total).toBe(1);
     expect((await service.stats(null, admin)).total).toBe(2);
+  });
+});
+
+describe('toTimelineEvent', () => {
+  const base = {
+    EventId: '7',
+    OccurredAt: new Date('2026-10-01T15:00:00.000Z'),
+    ActorId: 1,
+    ActorName: 'Admin',
+    FromCode: null,
+    FromName: null,
+    ToCode: null,
+    ToName: null,
+    FromUserName: null,
+    ToUserName: null,
+    Body: null,
+  };
+
+  it('convierte cada tipo de fila en su evento tipado', () => {
+    expect(
+      toTimelineEvent({
+        ...base,
+        Kind: 'STATUS',
+        FromCode: 'PENDING',
+        FromName: 'Pendiente',
+        ToCode: 'IN_PROGRESS',
+        ToName: 'En progreso',
+      }),
+    ).toMatchObject({
+      id: 'STATUS-7',
+      kind: 'STATUS',
+      from: { code: 'PENDING' },
+      to: { code: 'IN_PROGRESS' },
+    });
+    expect(
+      toTimelineEvent({ ...base, Kind: 'ASSIGNMENT', FromUserName: 'Ana', ToUserName: null }),
+    ).toMatchObject({
+      kind: 'ASSIGNMENT',
+      fromUser: 'Ana',
+      toUser: null,
+    });
+    expect(toTimelineEvent({ ...base, Kind: 'NOTE', Body: 'Avance' })).toMatchObject({
+      kind: 'NOTE',
+      body: 'Avance',
+      actor: { id: 1, name: 'Admin' },
+      occurredAt: '2026-10-01T15:00:00.000Z',
+    });
   });
 });

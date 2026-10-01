@@ -11,6 +11,8 @@ export interface Task {
   createdBy: { id: number; name: string };
   /** Responsable de la tarea; null = sin asignar. */
   assignedTo: { id: number; name: string } | null;
+  /** Cantidad de avances registrados (seguimiento). */
+  notesCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -57,7 +59,46 @@ export interface UpdateTaskInput extends TaskData {
   /** undefined = conservar el responsable actual. */
   assignedTo?: number | null;
   actorId: ViewerScope;
+  /** Quién hace el cambio (queda en el historial de responsables). */
+  changedBy: number;
 }
+
+interface Person {
+  id: number;
+  name: string;
+}
+
+interface StatusRef {
+  code: string;
+  name: string;
+}
+
+export interface TaskNote {
+  id: number;
+  body: string;
+  author: Person;
+  createdAt: string;
+}
+
+export interface AddTaskNoteInput {
+  taskId: number;
+  body: string;
+  createdBy: number;
+  viewerId: ViewerScope;
+}
+
+interface TimelineBase {
+  id: string;
+  occurredAt: string;
+  actor: Person;
+}
+
+/** Evento de la línea de tiempo de una tarea (unión discriminada por `kind`). */
+export type TimelineEvent =
+  | (TimelineBase & { kind: 'CREATED'; status: StatusRef })
+  | (TimelineBase & { kind: 'STATUS'; from: StatusRef; to: StatusRef })
+  | (TimelineBase & { kind: 'ASSIGNMENT'; fromUser: string | null; toUser: string | null })
+  | (TimelineBase & { kind: 'NOTE'; body: string });
 
 export interface ChangeTaskStatusInput {
   taskId: number;
@@ -92,4 +133,6 @@ export interface TaskRepository {
   changeStatus(input: ChangeTaskStatusInput): Promise<Task>;
   listStatuses(): Promise<TaskStatus[]>;
   stats(today: string | null, viewerId?: ViewerScope): Promise<TaskStatsSnapshot>;
+  addNote(input: AddTaskNoteInput): Promise<TaskNote>;
+  timeline(taskId: number, viewerId: ViewerScope): Promise<TimelineEvent[]>;
 }

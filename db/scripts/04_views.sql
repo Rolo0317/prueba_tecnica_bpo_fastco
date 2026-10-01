@@ -21,12 +21,15 @@ SELECT
     u.FullName   AS CreatedByName,
     t.AssignedTo AS AssignedToId,
     a.FullName   AS AssignedToName,
+    n.NotesCount,
     t.CreatedAt,
     t.UpdatedAt
 FROM dbo.Tasks AS t
 INNER JOIN dbo.TaskStatuses AS s ON s.StatusId = t.StatusId
 INNER JOIN dbo.Users        AS u ON u.UserId   = t.CreatedBy
-LEFT  JOIN dbo.Users        AS a ON a.UserId   = t.AssignedTo;
+LEFT  JOIN dbo.Users        AS a ON a.UserId   = t.AssignedTo
+-- Conteo por tarea apoyado en IX_TaskNotes_TaskId_CreatedAt (Index Seek por TaskId).
+OUTER APPLY (SELECT COUNT(*) AS NotesCount FROM dbo.TaskNotes WHERE TaskId = t.TaskId) AS n;
 GO
 
 /* Proyección pública de un usuario (sin el hash de la contraseña). */

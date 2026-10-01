@@ -3,7 +3,8 @@
 Aplicación fullstack para gestionar las tareas operativas de un equipo de **back office** (BPO / contact center):
 los agentes inician sesión, ven las tareas con filtro por estado y paginación, crean tareas nuevas y cambian su estado.
 Cada cambio queda registrado en un historial de auditoría. Las tareas se **asignan a responsables**: cada agente
-solo ve las suyas y el administrador ve y gestiona todas. Incluye panel de indicadores, administración de
+solo ve las suyas y el administrador ve y gestiona todas. Cada tarea tiene un **seguimiento**: línea de tiempo
+con avances, cambios de estado y de responsable. Incluye panel de indicadores, administración de
 usuarios con roles (`ADMIN` / `AGENT`), cambio de contraseña propio y modo claro/oscuro.
 
 **Stack:** Vue 3 (Composition API) + Vuetify · Node.js + Express + TypeScript · SQL Server 2022 · Docker Compose · Linux
@@ -140,6 +141,7 @@ y [docs/adr/0002-control-de-acceso-y-eliminacion-de-usuarios.md](docs/adr/0002-c
 | Editar título, descripción, prioridad y fecha | Cualquier tarea | Solo las que él creó |
 | Asignar / reasignar responsable | Sí | No |
 | Cambiar estado | Cualquier tarea | Las que puede ver |
+| Ver el seguimiento y registrar avances | Cualquier tarea | Las que puede ver |
 | Administrar usuarios (crear, editar, desactivar, eliminar, restablecer contraseña) | Sí | No |
 | Cambiar su propia contraseña | Sí | Sí |
 
@@ -170,7 +172,9 @@ Detalle completo, modelo y evidencia del índice en [db/README.md](db/README.md)
 |---|---|---|
 | `usp_Tasks_List` | — | Filtro opcional por estado + paginación `OFFSET/FETCH` + total (`OUTPUT`) |
 | `usp_Tasks_Create` | ✅ | Crea la tarea en `PENDING` (con responsable opcional) y registra el historial |
-| `usp_Tasks_Update` | ✅ | Edita datos y responsable; un agente solo edita lo que creó y no reasigna (50403) |
+| `usp_Tasks_Update` | ✅ | Edita datos y responsable (registra la reasignación); un agente solo edita lo que creó y no reasigna (50403) |
+| `usp_TaskNotes_Create` | — | Registra un avance (solo inserción: no se edita ni se borra) |
+| `usp_Tasks_Timeline` | — | Línea de tiempo: creación, estados, responsables y avances en orden cronológico |
 | `usp_Tasks_ChangeStatus` | ✅ | Bloquea la fila (`UPDLOCK`), valida existencia y transición, actualiza e inserta historial |
 | `usp_TaskStatuses_List` | — | Catálogo de estados con sus transiciones permitidas |
 | `usp_Tasks_Stats` | — | Conteo por estado (incluye estados en 0), vencidas, que vencen hoy y alta prioridad abiertas |
@@ -198,6 +202,8 @@ Base: `/api/v1`. Todas las rutas de tareas requieren `Authorization: Bearer <tok
 | `POST` | `/tasks` | 201 + cabecera `Location` | 400 · 401 |
 | `PATCH` | `/tasks/:id` (editar; `assignedTo` solo ADMIN) | 200 | 400 · 401 · 403 · 404 |
 | `PATCH` | `/tasks/:id/status` | 200 | 400 · 401 · 404 · 409 |
+| `GET` | `/tasks/:id/timeline` (seguimiento) | 200 `TimelineEvent[]` | 401 · 404 |
+| `POST` | `/tasks/:id/notes` `{ body }` (registrar avance) | 201 | 400 · 401 · 404 |
 | `GET` | `/tasks/stats?today=AAAA-MM-DD` | 200 `{ total, overdue, dueToday, highPriorityOpen, byStatus }` | 400 · 401 |
 | `GET` | `/task-statuses` | 200 | 401 |
 | `PUT` | `/account/password` (cualquier rol) | 204 | 400 · 401 · 429 |
@@ -246,6 +252,9 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
 - **Indicadores:** un círculo "líquido" por estado (SVG + CSS, el nivel del agua es el porcentaje) más KPI de total,
   vencidas, que vencen hoy y prioridad alta abiertas. Hacer clic en un círculo filtra la tabla. Se calculan en SQL
   con la fecha local del usuario y se actualizan al crear o cambiar una tarea.
+- **Seguimiento:** al hacer clic en el título de una tarea se abre un panel lateral con su resumen (estado, prioridad,
+  responsable, "vence en 2 días"), un campo para registrar avances y la línea de tiempo (lo más reciente arriba).
+  La fila muestra cuántos avances tiene.
 - **Asignación:** columna "Responsable" en la tabla, selector con búsqueda en el formulario (solo administrador) y
   edición de tareas desde la fila (administrador: todas; agente: las que creó).
 - **Usuarios (solo administradores):** crear, editar nombre y rol, activar/desactivar, **eliminar** (con confirmación) y restablecer
@@ -284,9 +293,9 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
 
 | Suite | Cantidad | Comando |
 |---|---|---|
-| Backend: unitarias + integración HTTP (supertest) | 88 | `cd backend && npm ci && npm test` |
-| Frontend: unitarias (composables, cliente HTTP, store, router, componentes) | 65 | `cd frontend && npm ci && npm test` |
-| End-to-end (Playwright, escritorio y móvil) contra `docker compose` | 40 | ver abajo |
+| Backend: unitarias + integración HTTP (supertest) | 95 | `cd backend && npm ci && npm test` |
+| Frontend: unitarias (composables, cliente HTTP, store, router, componentes) | 77 | `cd frontend && npm ci && npm test` |
+| End-to-end (Playwright, escritorio y móvil) contra `docker compose` | 44 | ver abajo |
 
 ```bash
 # Las pruebas hacen logins fallidos a propósito: se sube el límite anti fuerza bruta solo para esta corrida.
@@ -360,7 +369,7 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
 - Secretos en un gestor (Azure Key Vault, AWS Secrets Manager o Docker/Kubernetes secrets) en lugar de un archivo `.env`, con rotación.
 - HTTPS en todo el recorrido: TLS en el balanceador/nginx con HSTS, y certificado válido en SQL Server (`DB_TRUST_SERVER_CERTIFICATE=false`).
 - Token de acceso corto + *refresh token* en cookie `HttpOnly`, `Secure`, `SameSite`, y revocación de sesiones (en vez de `sessionStorage`).
-- Los roles `ADMIN` / `AGENT` y la asignación ya existen; agregaría un rol de supervisor por equipo, historial de reasignaciones, SSO corporativo (Entra ID / OAuth2) con MFA, cambio obligatorio de la contraseña inicial y revocación inmediata de sesiones al desactivar un usuario o cambiar su contraseña (versión de token validada en cada petición).
+- Los roles `ADMIN` / `AGENT`, la asignación y el seguimiento ya existen; agregaría un rol de supervisor por equipo, adjuntos en los avances (con antivirus y almacenamiento de objetos), SSO corporativo (Entra ID / OAuth2) con MFA, cambio obligatorio de la contraseña inicial y revocación inmediata de sesiones al desactivar un usuario o cambiar su contraseña (versión de token validada en cada petición).
 - *Rate limit* compartido entre instancias (Redis), WAF, escaneo de imágenes (Trivy) y de dependencias (Dependabot/Renovate) en el pipeline, y pruebas de penetración.
 - Cumplimiento de la **Ley 1581 de 2012 (Habeas Data)** y alineación con ISO 27001: clasificación de datos, retención y auditoría de accesos.
 

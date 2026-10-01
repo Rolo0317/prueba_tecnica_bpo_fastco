@@ -42,6 +42,12 @@ TaskStatuses 1───* Tasks *───1 Users
 | `usp_Tasks_Stats` (conteos por estado y vencimientos, por alcance) | — | — |
 | `usp_Tasks_Update` (datos y responsable; permisos por rol) | ✅ | 50400, 50403, 50404 |
 | `usp_Users_ListAssignable` / `usp_Users_Delete` (eliminación lógica) | ✅ | 50404, 50409 |
+| `usp_TaskNotes_Create` (avance; solo inserción) | — | 50400, 50404 |
+| `usp_Tasks_Timeline` (creación, estados, responsables y avances) | — | 50404 |
+
+**Seguimiento:** `TaskNotes` (avances) y `TaskAssignmentHistory` (cada asignación, reasignación o liberación,
+incluida la que ocurre al eliminar un usuario) son tablas de solo inserción. Junto con `TaskStatusHistory`
+forman la línea de tiempo de cada tarea.
 
 **Visibilidad:** los SPs de tareas reciben `@ViewerId` (NULL = administrador). Un agente solo ve, cambia de
 estado y cuenta las tareas asignadas a él o creadas por él; una tarea ajena responde 50404. Índices de apoyo:

@@ -3,12 +3,17 @@ import type { ProcedureParameter, ProcedureRunner } from '../../database/procedu
 import {
   PRIORITY_VALUE,
   toTask,
+  toTaskNote,
   toTaskStatus,
+  toTimelineEvent,
   type StatusCountRow,
+  type TaskNoteRow,
   type TaskRow,
   type TaskStatusRow,
+  type TimelineRow,
 } from './task.mapper.js';
 import type {
+  AddTaskNoteInput,
   ChangeTaskStatusInput,
   CreateTaskInput,
   ListTasksFilter,
@@ -16,8 +21,10 @@ import type {
   TaskData,
   TaskPage,
   TaskRepository,
+  TaskNote,
   TaskStatsSnapshot,
   TaskStatus,
+  TimelineEvent,
   UpdateTaskInput,
   ViewerScope,
 } from './task.types.js';
@@ -75,6 +82,7 @@ export class SqlTaskRepository implements TaskRepository {
         AssignedTo: optionalInt(input.assignedTo),
         ChangeAssignee: { type: sql.Bit, value: input.assignedTo !== undefined },
         ActorId: optionalInt(input.actorId),
+        ChangedBy: { type: sql.Int, value: input.changedBy },
       },
     });
     return this.singleTask(rows, 'usp_Tasks_Update');
@@ -119,6 +127,30 @@ export class SqlTaskRepository implements TaskRepository {
         count: row.TaskCount,
       })),
     };
+  }
+
+  async addNote(input: AddTaskNoteInput): Promise<TaskNote> {
+    const { rows } = await this.db.execute<TaskNoteRow>('dbo.usp_TaskNotes_Create', {
+      inputs: {
+        TaskId: { type: sql.Int, value: input.taskId },
+        Body: { type: sql.NVarChar(2000), value: input.body },
+        CreatedBy: { type: sql.Int, value: input.createdBy },
+        ViewerId: optionalInt(input.viewerId),
+      },
+    });
+    const [row] = rows;
+    if (!row) throw new Error('usp_TaskNotes_Create no devolvió el avance.');
+    return toTaskNote(row);
+  }
+
+  async timeline(taskId: number, viewerId: ViewerScope): Promise<TimelineEvent[]> {
+    const { rows } = await this.db.execute<TimelineRow>('dbo.usp_Tasks_Timeline', {
+      inputs: {
+        TaskId: { type: sql.Int, value: taskId },
+        ViewerId: optionalInt(viewerId),
+      },
+    });
+    return rows.map(toTimelineEvent);
   }
 
   private singleTask(rows: TaskRow[], procedure: string): Task {

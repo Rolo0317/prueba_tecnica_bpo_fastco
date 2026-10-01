@@ -26,4 +26,4 @@ acceso no puede depender solo de la interfaz.
 - (+) Un agente nunca recibe datos de tareas ajenas: ni en el listado, ni en los indicadores, ni al editar o cambiar estado.
 - (+) La trazabilidad se conserva aunque se eliminen usuarios.
 - (−) El nombre de usuario de un usuario eliminado sigue reservado (no se puede reutilizar). Es intencional para que la auditoría no sea ambigua.
-- (−) Los cambios de responsable no se registran todavía en un historial propio; queda como evolución (tabla `TaskAssignmentHistory`).
+- (+) Actualización: los cambios de responsable se registran en `TaskAssignmentHistory` y se muestran en el seguimiento de la tarea, junto con los avances (`TaskNotes`) y los cambios de estado.

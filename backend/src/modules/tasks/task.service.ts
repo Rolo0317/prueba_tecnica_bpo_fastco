@@ -3,6 +3,8 @@ import { toPaginated, type Paginated } from '../../core/pagination.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import type {
   ListTasksFilter,
+  TaskNote,
+  TimelineEvent,
   Task,
   TaskData,
   TaskRepository,
@@ -60,7 +62,17 @@ export class TaskService {
       taskId,
       ...(assignedTo !== undefined && { assignedTo }),
       actorId: scopeOf(viewer),
+      changedBy: viewer.id,
     });
+  }
+
+  /** Cualquier persona que pueda ver la tarea puede registrar un avance. */
+  addNote(taskId: number, body: string, viewer: AuthUser): Promise<TaskNote> {
+    return this.tasks.addNote({ taskId, body, createdBy: viewer.id, viewerId: scopeOf(viewer) });
+  }
+
+  timeline(taskId: number, viewer: AuthUser): Promise<TimelineEvent[]> {
+    return this.tasks.timeline(taskId, scopeOf(viewer));
   }
 
   changeStatus(taskId: number, status: string, viewer: AuthUser): Promise<Task> {

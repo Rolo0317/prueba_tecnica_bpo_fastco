@@ -28,6 +28,23 @@ export function todayIso(now: Date = new Date()): string {
   return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
 }
 
+const DAY_MS = 86_400_000;
+
+/** Días entre dos fechas "YYYY-MM-DD" (positivo si `to` es posterior). */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
+}
+
+/** Fecha límite en lenguaje natural: "Vence en 2 días", "Vence hoy", "Vencida hace 3 días". */
+export function dueRelative(dueDate: string | null, today: string = todayIso()): string {
+  if (!dueDate) return 'Sin fecha límite';
+  const days = daysBetween(today, dueDate);
+  if (days === 0) return 'Vence hoy';
+  if (days === 1) return 'Vence mañana';
+  if (days > 1) return `Vence en ${String(days)} días`;
+  return days === -1 ? 'Venció ayer' : `Vencida hace ${String(-days)} días`;
+}
+
 export type DueState = 'overdue' | 'today' | null;
 
 export function dueState(dueDate: string | null, today: string = todayIso()): DueState {

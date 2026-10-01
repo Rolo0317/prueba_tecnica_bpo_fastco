@@ -138,3 +138,41 @@ BEGIN
     );
 END;
 GO
+
+/* Avances (notas de seguimiento) de una tarea: quién reportó qué y cuándo.
+   Solo inserción: no se editan ni se borran, para que sean una traza confiable. */
+IF OBJECT_ID(N'dbo.TaskNotes', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TaskNotes
+    (
+        NoteId    BIGINT IDENTITY (1, 1) NOT NULL CONSTRAINT PK_TaskNotes PRIMARY KEY,
+        TaskId    INT            NOT NULL
+            CONSTRAINT FK_TaskNotes_Task REFERENCES dbo.Tasks (TaskId),
+        Body      NVARCHAR(1000) NOT NULL,
+        CreatedBy INT            NOT NULL
+            CONSTRAINT FK_TaskNotes_CreatedBy REFERENCES dbo.Users (UserId),
+        CreatedAt DATETIME2(3)   NOT NULL CONSTRAINT DF_TaskNotes_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT CK_TaskNotes_Body_NotBlank CHECK (LEN(TRIM(Body)) > 0)
+    );
+END;
+GO
+
+/* Historial de responsables: cada asignación, reasignación o liberación (auditoría).
+   FromUserId / ToUserId NULL = sin asignar. */
+IF OBJECT_ID(N'dbo.TaskAssignmentHistory', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.TaskAssignmentHistory
+    (
+        HistoryId  BIGINT IDENTITY (1, 1) NOT NULL CONSTRAINT PK_TaskAssignmentHistory PRIMARY KEY,
+        TaskId     INT          NOT NULL
+            CONSTRAINT FK_TaskAssignmentHistory_Task REFERENCES dbo.Tasks (TaskId),
+        FromUserId INT          NULL
+            CONSTRAINT FK_TaskAssignmentHistory_FromUser REFERENCES dbo.Users (UserId),
+        ToUserId   INT          NULL
+            CONSTRAINT FK_TaskAssignmentHistory_ToUser REFERENCES dbo.Users (UserId),
+        ChangedBy  INT          NOT NULL
+            CONSTRAINT FK_TaskAssignmentHistory_ChangedBy REFERENCES dbo.Users (UserId),
+        ChangedAt  DATETIME2(3) NOT NULL CONSTRAINT DF_TaskAssignmentHistory_ChangedAt DEFAULT (SYSUTCDATETIME())
+    );
+END;
+GO

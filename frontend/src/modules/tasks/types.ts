@@ -10,6 +10,8 @@ export interface Task {
   createdBy: { id: number; name: string };
   /** Responsable; null = sin asignar. */
   assignedTo: { id: number; name: string } | null;
+  /** Cantidad de avances registrados en el seguimiento. */
+  notesCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -22,6 +24,36 @@ export interface TaskStatus {
 }
 
 export type { Paginated, Pagination } from '@/shared/types/pagination';
+
+interface Person {
+  id: number;
+  name: string;
+}
+
+interface StatusRef {
+  code: string;
+  name: string;
+}
+
+export interface TaskNote {
+  id: number;
+  body: string;
+  author: Person;
+  createdAt: string;
+}
+
+interface TimelineBase {
+  id: string;
+  occurredAt: string;
+  actor: Person;
+}
+
+/** Evento del seguimiento de una tarea (mismo contrato que la API). */
+export type TimelineEvent =
+  | (TimelineBase & { kind: 'CREATED'; status: StatusRef })
+  | (TimelineBase & { kind: 'STATUS'; from: StatusRef; to: StatusRef })
+  | (TimelineBase & { kind: 'ASSIGNMENT'; fromUser: string | null; toUser: string | null })
+  | (TimelineBase & { kind: 'NOTE'; body: string });
 
 export interface StatusStat {
   code: string;

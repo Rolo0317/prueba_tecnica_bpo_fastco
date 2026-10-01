@@ -24,6 +24,8 @@ function fakeService(overrides: Partial<TaskService> = {}): TaskService {
       .mockResolvedValue(buildTask({ status: { code: 'IN_PROGRESS', name: 'En progreso' } })),
     listStatuses: vi.fn().mockResolvedValue(STATUSES),
     stats: vi.fn().mockResolvedValue(STATS),
+    timeline: vi.fn().mockResolvedValue([]),
+    addNote: vi.fn(),
     ...overrides,
   };
 }
