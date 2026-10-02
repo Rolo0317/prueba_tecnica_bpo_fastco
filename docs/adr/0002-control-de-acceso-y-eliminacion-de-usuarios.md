@@ -1,6 +1,6 @@
 # ADR 0002 — Control de acceso por tarea y eliminación de usuarios
 
-- **Estado:** Aceptada
+- **Estado:** Aceptada (los roles fijos de la decisión #4 fueron reemplazados por roles configurables: ver ADR 0003)
 - **Fecha:** 2026-10-01
 
 ## Contexto

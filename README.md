@@ -1,11 +1,13 @@
 # Gestor de Tareas Operativas
 
-Aplicación fullstack para gestionar las tareas operativas de un equipo de **back office** (BPO / contact center):
-los agentes inician sesión, ven las tareas con filtro por estado y paginación, crean tareas nuevas y cambian su estado.
-Cada cambio queda registrado en un historial de auditoría. Las tareas se **asignan a responsables**: cada agente
-solo ve las suyas y el administrador ve y gestiona todas. Cada tarea tiene un **seguimiento**: línea de tiempo
-con avances, cambios de estado y de responsable. Incluye panel de indicadores, administración de
-usuarios con roles (`ADMIN` / `AGENT`), cambio de contraseña propio y modo claro/oscuro.
+Aplicación fullstack para que **cualquier área o equipo** (operaciones, TI, talento humano, finanzas, calidad…)
+gestione sus tareas de forma ordenada: los usuarios inician sesión, ven las tareas con filtro por estado y
+paginación, crean tareas nuevas y cambian su estado.
+Cada cambio queda registrado en un historial de auditoría. Las tareas pertenecen a **áreas** y se **asignan a
+responsables**. El acceso es **configurable**: los roles se arman con permisos (ver todas las tareas, las del
+área, editar, asignar, administrar usuarios, áreas o roles) y a cada usuario se le asigna un rol y un área.
+Cada tarea tiene un **seguimiento**: línea de tiempo con avances, cambios de estado y de responsable. Incluye
+panel de indicadores (por área), cambio de contraseña propio y modo claro/oscuro.
 
 **Stack:** Vue 3 (Composition API) + Vuetify · Node.js + Express + TypeScript · SQL Server 2022 · Docker Compose · Linux
 
@@ -129,24 +131,43 @@ routes → controller → service → repository → Stored Procedure
 | ViewModel | Estado reactivo, carga, errores, acciones | `composables/useTasks.ts` |
 | View | Solo presentación | `components/TaskTable.vue` |
 
-Las decisiones y sus alternativas están en [docs/adr/0001-arquitectura-general.md](docs/adr/0001-arquitectura-general.md)
-y [docs/adr/0002-control-de-acceso-y-eliminacion-de-usuarios.md](docs/adr/0002-control-de-acceso-y-eliminacion-de-usuarios.md).
+Las decisiones y sus alternativas están en [docs/adr/0001](docs/adr/0001-arquitectura-general.md),
+[docs/adr/0002](docs/adr/0002-control-de-acceso-y-eliminacion-de-usuarios.md) y
+[docs/adr/0003](docs/adr/0003-roles-configurables-y-areas.md).
 
-### Permisos por rol
+### Áreas, roles y permisos
 
-| Acción | Administrador | Agente |
-|---|---|---|
-| Ver tareas e indicadores | Todas | Solo las asignadas a él y las que él creó |
-| Crear tareas | Sí, eligiendo responsable | Sí; quedan asignadas a él |
-| Editar título, descripción, prioridad y fecha | Cualquier tarea | Solo las que él creó |
-| Asignar / reasignar responsable | Sí | No |
-| Cambiar estado | Cualquier tarea | Las que puede ver |
-| Ver el seguimiento y registrar avances | Cualquier tarea | Las que puede ver |
-| Administrar usuarios (crear, editar, desactivar, eliminar, restablecer contraseña) | Sí | No |
-| Cambiar su propia contraseña | Sí | Sí |
+Cada usuario tiene **un rol y (opcionalmente) un área**; cada tarea pertenece a un área. Un rol es una
+combinación de permisos de un catálogo fijo (cada permiso lo hace cumplir el código):
 
-La visibilidad se aplica en la API **y** en los Stored Procedures (defensa en profundidad). Una tarea que el
-agente no puede ver responde 404, para no revelar que existe.
+| Permiso | Qué habilita |
+|---|---|
+| `TASKS_VIEW_ALL` | Ver las tareas de todas las áreas (y elegir o cambiar el área de una tarea) |
+| `TASKS_VIEW_AREA` | Ver las tareas de su área |
+| `TASKS_EDIT_ANY` | Editar cualquier tarea que pueda ver (sin él, solo las que creó) |
+| `TASKS_ASSIGN` | Asignar o reasignar responsables (sin `TASKS_VIEW_ALL`, solo a personas de su área) |
+| `USERS_MANAGE` | Crear, editar, desactivar, eliminar usuarios y restablecer contraseñas |
+| `AREAS_MANAGE` | Crear, editar y desactivar áreas |
+| `ROLES_MANAGE` | Crear y editar roles y sus permisos |
+
+Sin ningún permiso, una persona ve y gestiona las tareas asignadas a ella y las que creó. Roles iniciales:
+
+| Acción | Administrador | Supervisor | Colaborador |
+|---|---|---|---|
+| Ver tareas e indicadores | Todas las áreas | Las de su área + las suyas | Las asignadas a él y las que creó |
+| Crear tareas | Sí, eligiendo área y responsable | En su área, asignándolas a su equipo | Sí; quedan asignadas a él, en su área |
+| Editar tareas | Cualquiera | Las de su área | Solo las que creó |
+| Cambiar estado / registrar avances | Las que ve | Las que ve | Las que ve |
+| Administrar usuarios, áreas y roles | Sí | No | No |
+| Cambiar su propia contraseña | Sí | Sí | Sí |
+
+- **Administrador** está protegido: siempre tiene todos los permisos y no se edita ni se elimina. Supervisor y
+  Colaborador son editables, y se pueden crear roles nuevos (p. ej. "Auditor" con solo `TASKS_VIEW_ALL`).
+- **Sin escalada de privilegios:** nadie otorga permisos que no tiene, ni gestiona a alguien con más permisos,
+  ni edita su propio rol; siempre queda al menos un Administrador activo.
+- Rol, área y permisos se leen de la BD **en cada petición**: un cambio aplica de inmediato, sin volver a iniciar sesión.
+- Todo se valida en la API **y** en los Stored Procedures (defensa en profundidad). Una tarea que alguien no
+  puede ver responde 404, para no revelar que existe.
 
 ---
 
@@ -157,11 +178,14 @@ Detalle completo, modelo y evidencia del índice en [db/README.md](db/README.md)
 | Script | Contenido |
 |---|---|
 | `01_database.sql` | Base de datos + `READ_COMMITTED_SNAPSHOT` (las lecturas no bloquean escrituras) |
-| `02_tables.sql` | `Tasks`, `TaskStatuses`, `TaskStatusTransitions`, `Users`, `TaskStatusHistory` |
+| `02_tables.sql` | `Tasks`, `TaskStatuses`, `TaskStatusTransitions`, `Users`, `TaskStatusHistory`, `TaskNotes`, `TaskAssignmentHistory` |
+| `02a_access_control.sql` | `Permissions` (catálogo), `Roles`, `RolePermissions`, `Areas` + migración idempotente desde el rol de texto anterior |
 | `03_indexes.sql` | Índices justificados por las consultas reales |
-| `04_views.sql` | `vw_TaskDetails`: proyección única que reutilizan todos los SPs |
+| `04_views.sql` | `tvf_UserAccess` (permisos efectivos de un usuario: fuente única de autorización en SQL), `vw_TaskDetails`, `vw_Users` |
 | `05_procedures.sql` | Stored Procedures de tareas y estados |
-| `05_procedures_users.sql` | Stored Procedures de usuarios (login, administración, contraseñas) |
+| `05_procedures_access.sql` | Permisos, roles (sin escalada de privilegios) y áreas |
+| `05_procedures_followup.sql` | Avances y línea de tiempo de una tarea |
+| `05_procedures_users.sql` | Stored Procedures de usuarios (login, sesión, administración, contraseñas) |
 | `05_procedures_stats.sql` | Estadísticas para los indicadores |
 | `06_seed_catalogs.sql` | Estados y transiciones permitidas |
 | `07_security.sql` | Usuario de aplicación con permiso **solo de EXECUTE** |
@@ -170,9 +194,9 @@ Detalle completo, modelo y evidencia del índice en [db/README.md](db/README.md)
 
 | SP | Transacción | Qué hace |
 |---|---|---|
-| `usp_Tasks_List` | — | Filtro opcional por estado + paginación `OFFSET/FETCH` + total (`OUTPUT`) |
-| `usp_Tasks_Create` | ✅ | Crea la tarea en `PENDING` (con responsable opcional) y registra el historial |
-| `usp_Tasks_Update` | ✅ | Edita datos y responsable (registra la reasignación); un agente solo edita lo que creó y no reasigna (50403) |
+| `usp_Tasks_List` | — | Filtros opcionales por estado y área + alcance según permisos + paginación `OFFSET/FETCH` + total (`OUTPUT`) |
+| `usp_Tasks_Create` | ✅ | Crea la tarea en `PENDING` (área y responsable según permisos) y registra el historial |
+| `usp_Tasks_Update` | ✅ | Edita datos, responsable y área según permisos (50403 si no corresponde) y registra la reasignación |
 | `usp_TaskNotes_Create` | — | Registra un avance (solo inserción: no se edita ni se borra) |
 | `usp_Tasks_Timeline` | — | Línea de tiempo: creación, estados, responsables y avances en orden cronológico |
 | `usp_Tasks_ChangeStatus` | ✅ | Bloquea la fila (`UPDLOCK`), valida existencia y transición, actualiza e inserta historial |
@@ -180,14 +204,16 @@ Detalle completo, modelo y evidencia del índice en [db/README.md](db/README.md)
 | `usp_Tasks_Stats` | — | Conteo por estado (incluye estados en 0), vencidas, que vencen hoy y alta prioridad abiertas |
 | `usp_Users_GetByUsername` / `usp_Users_GetCredentialsById` | — | Login y verificación de la contraseña actual (solo usuarios activos) |
 | `usp_Users_List` / `usp_Users_Create` | — | Listado paginado y alta (solo acepta hashes bcrypt) |
-| `usp_Users_Update` / `usp_Users_SetActive` | ✅ | Edición y activación con reglas: nadie se desactiva ni se quita el rol a sí mismo y siempre queda un administrador activo (conteo con `UPDLOCK, HOLDLOCK` contra condiciones de carrera) |
+| `usp_Users_Update` / `usp_Users_SetActive` | ✅ | Edición (nombre, rol, área) y activación: sin escalada de privilegios, nadie se desactiva ni se cambia el rol a sí mismo y siempre queda un Administrador activo (conteo con `UPDLOCK, HOLDLOCK` contra condiciones de carrera) |
+| `usp_Roles_Create` / `usp_Roles_Update` / `usp_Roles_Delete` | ✅ | Roles como combinación de permisos; Administrador bloqueado; solo se elimina un rol creado y sin usuarios |
+| `usp_Areas_List` / `usp_Areas_Save` | — | Áreas con conteo de personas y tareas abiertas; crear, editar, activar/desactivar |
 | `usp_Users_UpdatePassword` | — | Cambio o restablecimiento de contraseña (registra `PasswordChangedAt`) |
 
 **Reglas de negocio en datos:** las transiciones permitidas están en la tabla `TaskStatusTransitions`
 (`Pendiente → En progreso | Cancelada`, `En progreso → Pendiente | Completada | Cancelada`; `Completada` y `Cancelada` son finales).
 El SP las valida y el frontend las lee de la API: la regla existe en un solo lugar.
 
-Los errores de negocio se lanzan con `THROW 50400 | 50404 | 50409` y la API los traduce a HTTP 400 / 404 / 409.
+Los errores de negocio se lanzan con `THROW 50400 | 50403 | 50404 | 50409` y la API los traduce a HTTP 400 / 403 / 404 / 409.
 
 ---
 
@@ -198,21 +224,26 @@ Base: `/api/v1`. Todas las rutas de tareas requieren `Authorization: Bearer <tok
 | Método | Ruta | Éxito | Errores |
 |---|---|---|---|
 | `POST` | `/auth/login` | 200 `{ token, tokenType, expiresIn, user }` | 400 · 401 · 429 |
-| `GET` | `/tasks?status=&page=&pageSize=` | 200 `{ data, pagination }` | 400 · 401 |
-| `POST` | `/tasks` | 201 + cabecera `Location` | 400 · 401 |
-| `PATCH` | `/tasks/:id` (editar; `assignedTo` solo ADMIN) | 200 | 400 · 401 · 403 · 404 |
+| `GET` | `/tasks?status=&areaId=&page=&pageSize=` | 200 `{ data, pagination }` | 400 · 401 |
+| `POST` | `/tasks` `{ title, description?, priority, dueDate?, assignedTo?, areaId? }` | 201 + cabecera `Location` | 400 · 401 · 403 |
+| `PATCH` | `/tasks/:id` (editar; `assignedTo` con `TASKS_ASSIGN`, `areaId` con `TASKS_VIEW_ALL`) | 200 | 400 · 401 · 403 · 404 |
 | `PATCH` | `/tasks/:id/status` | 200 | 400 · 401 · 404 · 409 |
 | `GET` | `/tasks/:id/timeline` (seguimiento) | 200 `TimelineEvent[]` | 401 · 404 |
 | `POST` | `/tasks/:id/notes` `{ body }` (registrar avance) | 201 | 400 · 401 · 404 |
-| `GET` | `/tasks/stats?today=AAAA-MM-DD` | 200 `{ total, overdue, dueToday, highPriorityOpen, byStatus }` | 400 · 401 |
+| `GET` | `/tasks/stats?today=AAAA-MM-DD&areaId=` | 200 `{ total, overdue, dueToday, highPriorityOpen, byStatus }` | 400 · 401 |
 | `GET` | `/task-statuses` | 200 | 401 |
+| `GET` | `/account/me` (rol, área y permisos vigentes) | 200 | 401 |
 | `PUT` | `/account/password` (cualquier rol) | 200 sesión nueva `{ token, … }` (las demás quedan cerradas) | 400 · 401 · 429 |
-| `GET` | `/users?page=&pageSize=` (solo ADMIN) | 200 | 401 · 403 |
-| `POST` | `/users` (solo ADMIN) | 201 | 400 · 403 · 409 |
-| `GET` | `/users/assignable` (solo ADMIN, responsables posibles) | 200 | 401 · 403 |
-| `DELETE` | `/users/:id` (solo ADMIN, eliminación lógica) | 200 `{ unassignedTasks }` | 403 · 404 · 409 |
-| `PATCH` | `/users/:id` · `/users/:id/status` (solo ADMIN) | 200 | 400 · 403 · 404 · 409 |
-| `PUT` | `/users/:id/password` (solo ADMIN, restablecer) | 204 | 400 · 403 · 404 |
+| `GET` | `/users?page=&pageSize=` (`USERS_MANAGE`) | 200 | 401 · 403 |
+| `POST` | `/users` `{ username, fullName, roleId, areaId?, password }` (`USERS_MANAGE`) | 201 | 400 · 403 · 409 |
+| `GET` | `/users/assignable` (`TASKS_ASSIGN`; todos o los de su área) | 200 | 401 · 403 |
+| `DELETE` | `/users/:id` (`USERS_MANAGE`, eliminación lógica) | 200 `{ unassignedTasks }` | 403 · 404 · 409 |
+| `PATCH` | `/users/:id` `{ fullName, roleId, areaId? }` · `/users/:id/status` (`USERS_MANAGE`) | 200 | 400 · 403 · 404 · 409 |
+| `PUT` | `/users/:id/password` (`USERS_MANAGE`, restablecer) | 204 | 400 · 403 · 404 |
+| `GET` | `/roles` (`USERS_MANAGE` o `ROLES_MANAGE`) · `/permissions` (`ROLES_MANAGE`) | 200 | 401 · 403 |
+| `POST` · `PUT` · `DELETE` | `/roles` · `/roles/:id` `{ name, description?, permissions[] }` (`ROLES_MANAGE`) | 201 · 200 · 204 | 400 · 403 · 404 · 409 |
+| `GET` | `/areas?includeInactive=` (cualquier usuario autenticado) | 200 | 401 |
+| `POST` · `PATCH` | `/areas` · `/areas/:id` (`AREAS_MANAGE`) | 201 · 200 | 400 · 403 · 404 · 409 |
 | `GET` | `/health` | 200 / 503 | — |
 
 Formato único de error:
@@ -247,7 +278,7 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
 
 - **Composables propios:** `useAsyncState` (patrón loading/error reutilizable que ignora respuestas viejas),
   `useFormSubmit` (envío con errores del servidor por campo), `useTasks` (listado, filtros en la URL, creación,
-  cambio de estado), `useTaskStats`, `useTaskStatuses`, `useTaskForm`, `useUsers`, `useUserForm`,
+  cambio de estado), `useTaskStats`, `useTaskStatuses`, `useTaskForm`, `useUsers`, `useUserForm`, `useRoles`, `useAreas`,
   `useChangePassword`, `useLoginForm`, `useThemeMode`, `useNotifier`.
 - **Indicadores:** un círculo "líquido" por estado (SVG + CSS, el nivel del agua es el porcentaje) más KPI de total,
   vencidas, que vencen hoy y prioridad alta abiertas. Hacer clic en un círculo filtra la tabla. Se calculan en SQL
@@ -255,10 +286,15 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
 - **Seguimiento:** al hacer clic en el título de una tarea se abre un panel lateral con su resumen (estado, prioridad,
   responsable, "vence en 2 días"), un campo para registrar avances y la línea de tiempo (lo más reciente arriba).
   La fila muestra cuántos avances tiene.
-- **Asignación:** columna "Responsable" en la tabla, selector con búsqueda en el formulario (solo administrador) y
-  edición de tareas desde la fila (administrador: todas; agente: las que creó).
-- **Usuarios (solo administradores):** crear, editar nombre y rol, activar/desactivar, **eliminar** (con confirmación) y restablecer
-  contraseñas. **Cualquier usuario** cambia su propia contraseña desde el menú de su avatar.
+- **Áreas y asignación:** columnas "Responsable" y "Área", filtro por área (en la URL; los indicadores se recalculan
+  para esa área), selectores con búsqueda en el formulario según los permisos, y edición desde la fila.
+- **Usuarios:** crear con **rol y área** (si el área no existe, se escribe y se crea al guardar), editar,
+  activar/desactivar, **eliminar** (con confirmación) y restablecer contraseñas. Los roles con permisos que quien
+  administra no tiene aparecen deshabilitados. **Cualquier usuario** cambia su propia contraseña desde su menú.
+- **Roles y permisos:** tarjetas por rol con sus permisos y cuántas personas lo tienen; formulario con los permisos
+  agrupados y descritos. **Áreas:** tabla con personas y tareas abiertas por área.
+- **Menú según permisos:** cada sección aparece solo si el rol la permite (y la ruta también lo exige); en móvil
+  la navegación queda en íconos con `aria-label`. Los permisos se refrescan al entrar (`/account/me`).
 - **Modo claro / oscuro:** botón en la barra y en el login; recuerda la elección y, si no hay, usa la del sistema.
   El tema oscuro ajusta los colores de marca para mantener contraste AA.
 - **Estados visibles:** esqueleto de carga, barra de progreso al recargar, error con botón *Reintentar*, estado vacío con acción, botones con *loading* y avisos de confirmación.
@@ -285,7 +321,8 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
 | `helmet`, CORS con lista blanca, límite de tamaño del cuerpo | `app.ts` |
 | nginx: CSP, `X-Frame-Options`, `nosniff`, versión oculta; contenedores sin root | `frontend/nginx/` |
 | Frontend: redirección post-login solo a rutas internas; sesión en `sessionStorage` | `safeRedirect.ts` |
-| Roles: `requireRole('ADMIN')` responde 403; el frontend solo oculta lo que no corresponde | `authorize.ts`, `router/index.ts` |
+| Permisos: `requirePermission(...)` responde 403; rol, área y permisos se leen de la BD en cada petición (no viajan en el JWT); el frontend solo oculta lo que no corresponde | `authorize.ts`, `authenticate.ts`, `router/index.ts` |
+| Sin escalada de privilegios: no se otorgan permisos que no se tienen, no se gestiona a alguien con más permisos ni el propio rol; Administrador bloqueado (validado en el SP) | `05_procedures_access.sql`, `05_procedures_users.sql` |
 | Política de contraseñas (10+ caracteres, mayúscula, minúscula y número) igual en API y UI; el cambio propio exige la contraseña actual y tiene el mismo *rate limit* que el login | `user.schemas.ts`, `passwordRules.ts` |
 
 ---
@@ -294,9 +331,9 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
 
 | Suite | Cantidad | Comando |
 |---|---|---|
-| Backend: unitarias + integración HTTP (supertest) | 100 | `cd backend && npm ci && npm test` |
-| Frontend: unitarias (composables, cliente HTTP, store, router, componentes) | 78 | `cd frontend && npm ci && npm test` |
-| End-to-end (Playwright, escritorio y móvil) contra `docker compose` | 48 | ver abajo |
+| Backend: unitarias + integración HTTP (supertest) | 116 | `cd backend && npm ci && npm test` |
+| Frontend: unitarias (composables, cliente HTTP, store, router, componentes) | 87 | `cd frontend && npm ci && npm test` |
+| End-to-end (Playwright, escritorio y móvil) contra `docker compose` | 56 | ver abajo |
 
 ```bash
 # Las pruebas hacen logins fallidos a propósito: se sube el límite anti fuerza bruta solo para esta corrida.
@@ -334,19 +371,26 @@ ORDER BY CreatedAt DESC, TaskId DESC
 OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
 ```
 
-**Índice:** `IX_Tasks_StatusId_CreatedAt (StatusId, CreatedAt DESC, TaskId DESC)`
+**Índice:** `IX_Tasks_StatusId_CreatedAt (StatusId, CreatedAt DESC, TaskId DESC) INCLUDE (AreaId, AssignedTo, CreatedBy)`
 
 - `StatusId` va primero porque es un filtro de igualdad: permite un **Index Seek** directo al rango del estado pedido.
 - `CreatedAt DESC, TaskId DESC` coinciden exactamente con el `ORDER BY`: las filas salen ya ordenadas (**sin operador Sort**) y la lectura se detiene al completar la página. `TaskId` además desempata para que la paginación sea determinista.
 - Es **cubriente** para esa consulta: el SP primero pagina solo las claves con el índice y después trae el detalle completo de las 10 filas de la página (*deferred join*), en lugar de leer el detalle de todas las filas que salta el `OFFSET`.
-- Un segundo índice, `IX_Tasks_CreatedAt`, cubre el mismo listado sin filtro ("Todas").
+- `INCLUDE (AreaId, AssignedTo, CreatedBy)`: son las columnas del filtro de visibilidad ("su área, o asignadas a él, o creadas por él"). Así ese filtro se evalúa dentro del índice, sin ir a la tabla por cada fila.
+- Un segundo índice, `IX_Tasks_CreatedAt`, cubre el mismo listado sin filtro ("Todas"), y los índices por área, responsable y creador cubren el alcance de supervisores y colaboradores.
 
 **Medición real** (200 000 tareas, página 50, estado `COMPLETED`):
 
 | | Plan | Lecturas lógicas |
 |---|---|---|
-| Con el índice | `Index Seek … ORDERED FORWARD`, sin Sort | **7** |
-| Sin el índice (forzando el índice clustered) | Scan completo + Sort | **2 368** |
+| Con el índice | `Index Seek … ORDERED FORWARD`, sin Sort | **8** |
+| Sin el índice (forzando el índice clustered) | Scan completo + Sort | **2 135** |
+
+El mismo índice sostiene el conteo del total y el alcance por permisos. Con los 200 000 registros, el SP completo
+(conteo + página) lee 193 + 38 páginas para el administrador y 190 + 33 para un supervisor filtrando por estado
+(sin las columnas incluidas, ese caso leía 2 135: la tabla entera). El conteo se guarda en una tabla variable y no
+con `SELECT @Total = COUNT(*)`, porque SQL Server no aplica la optimización de `OPTION (RECOMPILE)` a sentencias
+que asignan variables: sin ella, el filtro de permisos no se simplifica y el conteo recorre la tabla.
 
 **Cómo verificar que SQL Server lo usa:**
 
@@ -370,7 +414,7 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
 - Secretos en un gestor (Azure Key Vault, AWS Secrets Manager o Docker/Kubernetes secrets) en lugar de un archivo `.env`, con rotación.
 - HTTPS en todo el recorrido: TLS en el balanceador/nginx con HSTS, y certificado válido en SQL Server (`DB_TRUST_SERVER_CERTIFICATE=false`).
 - Token de acceso corto + *refresh token* en cookie `HttpOnly`, `Secure`, `SameSite` (en vez de `sessionStorage`). La revocación ya existe (sesión revalidada en cada petición); con mucho tráfico, ese estado se cachearía unos segundos en Redis.
-- Los roles `ADMIN` / `AGENT`, la asignación y el seguimiento ya existen; agregaría un rol de supervisor por equipo, adjuntos en los avances (con antivirus y almacenamiento de objetos), SSO corporativo (Entra ID / OAuth2) con MFA y cambio obligatorio de la contraseña inicial.
+- Roles configurables, áreas, asignación y seguimiento ya existen; agregaría SSO corporativo (Entra ID / OAuth2) con MFA (mapeando grupos del directorio a roles), cambio obligatorio de la contraseña inicial y auditoría de los cambios de roles y permisos.
 - *Rate limit* compartido entre instancias (Redis), WAF, escaneo de imágenes (Trivy) y de dependencias (Dependabot/Renovate) en el pipeline, y pruebas de penetración.
 - Cumplimiento de la **Ley 1581 de 2012 (Habeas Data)** y alineación con ISO 27001: clasificación de datos, retención y auditoría de accesos.
 
@@ -385,5 +429,7 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
 - Orquestación (Kubernetes o un servicio administrado) con *readiness/liveness probes*, límites de CPU/memoria y escalado horizontal de la API (ya es *stateless*).
 
 **Producto**
-- Asignación de responsables, comentarios y adjuntos por tarea, vista del historial de cambios (el dato ya se guarda), notificaciones de vencimiento e indicadores por agente y por periodo.
+- Áreas jerárquicas (sub-áreas), personas en varias áreas y permisos por área (p. ej. supervisor de dos equipos):
+  el modelo lo admite con una tabla `UserAreas` y la misma función `tvf_UserAccess` como único punto a cambiar.
+- Adjuntos en los avances (con antivirus y almacenamiento de objetos), notificaciones de vencimiento (correo o Teams) e indicadores por persona, área y periodo.
 - Con millones de tareas, los indicadores se servirían desde una vista indexada con `COUNT_BIG` por estado (o un conteo cacheado) en lugar de agregarse en cada consulta.
