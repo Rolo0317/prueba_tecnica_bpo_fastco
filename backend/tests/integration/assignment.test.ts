@@ -132,6 +132,7 @@ describe('Usuarios asignables y eliminación', () => {
 
     expect(admin.status).toBe(200);
     expect(admin.body.map((u: { username: string }) => u.username)).toEqual(['admin', 'agente']);
+    expect(admin.body[1].area).toEqual({ id: 1, name: 'Operaciones' });
     expect(agent.status).toBe(403);
   });
 

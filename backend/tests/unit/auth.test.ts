@@ -3,9 +3,16 @@ import { describe, expect, it } from 'vitest';
 import { UnauthorizedError } from '../../src/core/errors.js';
 import { AuthService } from '../../src/modules/auth/auth.service.js';
 import { durationToSeconds, JwtTokenService } from '../../src/modules/auth/token.service.js';
-import { FakePasswordHasher, InMemoryUserRepository, TEST_AUTH_CONFIG } from '../helpers/fakes.js';
+import {
+  addUser,
+  AREA,
+  FakePasswordHasher,
+  InMemoryUserRepository,
+  ROLE,
+  TEST_AUTH_CONFIG,
+} from '../helpers/fakes.js';
 
-const user = { id: 7, username: 'agente', fullName: 'Agente Uno', role: 'AGENT' as const };
+const user = { id: 7, username: 'agente', fullName: 'Agente Uno' };
 
 describe('durationToSeconds', () => {
   it.each([
@@ -21,11 +28,12 @@ describe('durationToSeconds', () => {
 describe('JwtTokenService', () => {
   const service = new JwtTokenService(TEST_AUTH_CONFIG);
 
-  it('emite un token verificable con los datos del usuario', () => {
+  it('emite un token verificable que identifica al usuario (sin rol ni permisos)', () => {
     const { token, expiresIn } = service.issue(user, 1_700_000_000_000);
 
     expect(expiresIn).toBe(3600);
-    expect(service.verify(token)).toEqual({ user, passwordVersion: 1_700_000_000_000 });
+    expect(service.verify(token)).toEqual({ userId: 7, passwordVersion: 1_700_000_000_000 });
+    expect(jwt.decode(token)).not.toHaveProperty('role');
   });
 
   it('rechaza un token firmado con otro secreto', () => {
@@ -61,17 +69,17 @@ describe('JwtTokenService', () => {
 describe('AuthService.login', () => {
   const setup = async () => {
     const users = new InMemoryUserRepository();
-    const hasher = new FakePasswordHasher();
-    await users.create({
+    await addUser(users, {
       username: 'agente',
-      passwordHash: await hasher.hash('correcta'),
       fullName: 'Agente Uno',
-      role: 'AGENT',
+      password: 'correcta',
+      roleId: ROLE.SUPERVISOR,
+      areaId: AREA.OPERATIONS,
     });
-    return new AuthService(users, hasher, new JwtTokenService(TEST_AUTH_CONFIG));
+    return new AuthService(users, new FakePasswordHasher(), new JwtTokenService(TEST_AUTH_CONFIG));
   };
 
-  it('devuelve token y usuario con credenciales válidas', async () => {
+  it('devuelve token y usuario con su rol, área y permisos vigentes', async () => {
     const result = await (await setup()).login('agente', 'correcta');
 
     expect(result.tokenType).toBe('Bearer');
@@ -79,7 +87,9 @@ describe('AuthService.login', () => {
       id: 1,
       username: 'agente',
       fullName: 'Agente Uno',
-      role: 'AGENT',
+      role: { id: ROLE.SUPERVISOR, name: 'Supervisor' },
+      area: { id: AREA.OPERATIONS, name: 'Operaciones' },
+      permissions: ['TASKS_VIEW_AREA', 'TASKS_EDIT_ANY', 'TASKS_ASSIGN'],
     });
     expect(result.token).toEqual(expect.any(String));
   });

@@ -1,11 +1,11 @@
 import sql from 'mssql';
 import type { ProcedureRunner } from '../../database/procedure-executor.js';
+import { parsePermissions, type NamedRef } from '../access/access.types.js';
 import { passwordVersionOf, type SessionState } from '../auth/auth.types.js';
 import type {
   AssignableUser,
   CreateUserInput,
   ManagedUser,
-  Role,
   SetUserActiveInput,
   UpdateUserInput,
   UserPage,
@@ -17,47 +17,83 @@ interface CredentialsRow {
   UserId: number;
   Username: string;
   FullName: string;
-  Role: Role;
   PasswordHash: string;
   PasswordChangedAt: Date | null;
 }
 
-type AssignableRow = Omit<CredentialsRow, 'PasswordHash' | 'PasswordChangedAt'>;
-
-interface SessionRow {
-  Role: Role;
-  PasswordChangedAt: Date | null;
+interface AreaColumns {
+  AreaId: number | null;
+  AreaName: string | null;
 }
 
-/** Fila de dbo.vw_Users. */
-interface UserRow {
+interface RoleColumns {
+  RoleId: number;
+  RoleName: string;
+}
+
+interface SessionRow extends RoleColumns, AreaColumns {
   UserId: number;
   Username: string;
   FullName: string;
-  Role: Role;
+  PasswordChangedAt: Date | null;
+  Permissions: string;
+}
+
+interface AssignableRow extends AreaColumns {
+  UserId: number;
+  Username: string;
+  FullName: string;
+}
+
+/** Fila de dbo.vw_Users. */
+interface UserRow extends RoleColumns, AreaColumns {
+  UserId: number;
+  Username: string;
+  FullName: string;
   IsActive: boolean;
   CreatedAt: Date;
   PasswordChangedAt: Date | null;
 }
 
+const isoOrNull = (date: Date | null): string | null => date?.toISOString() ?? null;
+
+const areaOf = (row: AreaColumns): NamedRef | null =>
+  row.AreaId === null ? null : { id: row.AreaId, name: row.AreaName ?? '' };
+
+const roleOf = (row: RoleColumns): NamedRef => ({ id: row.RoleId, name: row.RoleName });
+
 const toCredentials = (row: CredentialsRow): UserWithCredentials => ({
   id: row.UserId,
   username: row.Username,
   fullName: row.FullName,
-  role: row.Role,
   passwordHash: row.PasswordHash,
-  passwordChangedAt: row.PasswordChangedAt?.toISOString() ?? null,
+  passwordChangedAt: isoOrNull(row.PasswordChangedAt),
 });
 
 const toManagedUser = (row: UserRow): ManagedUser => ({
   id: row.UserId,
   username: row.Username,
   fullName: row.FullName,
-  role: row.Role,
+  role: roleOf(row),
+  area: areaOf(row),
   isActive: row.IsActive,
   createdAt: row.CreatedAt.toISOString(),
-  passwordChangedAt: row.PasswordChangedAt?.toISOString() ?? null,
+  passwordChangedAt: isoOrNull(row.PasswordChangedAt),
 });
+
+const toSessionState = (row: SessionRow): SessionState => ({
+  user: {
+    id: row.UserId,
+    username: row.Username,
+    fullName: row.FullName,
+    role: roleOf(row),
+    area: areaOf(row),
+    permissions: parsePermissions(row.Permissions),
+  },
+  passwordVersion: passwordVersionOf(isoOrNull(row.PasswordChangedAt)),
+});
+
+const optionalInt = (value: number | null) => ({ type: sql.Int, value });
 
 export class SqlUserRepository implements UserRepository {
   constructor(private readonly db: ProcedureRunner) {}
@@ -80,13 +116,7 @@ export class SqlUserRepository implements UserRepository {
     const { rows } = await this.db.execute<SessionRow>('dbo.usp_Users_GetSessionState', {
       inputs: { UserId: { type: sql.Int, value: userId } },
     });
-    const [row] = rows;
-    return row
-      ? {
-          role: row.Role,
-          passwordVersion: passwordVersionOf(row.PasswordChangedAt?.toISOString() ?? null),
-        }
-      : null;
+    return rows[0] ? toSessionState(rows[0]) : null;
   }
 
   async list(page: number, pageSize: number): Promise<UserPage> {
@@ -106,7 +136,9 @@ export class SqlUserRepository implements UserRepository {
         Username: { type: sql.NVarChar(100), value: input.username },
         PasswordHash: { type: sql.VarChar(200), value: input.passwordHash },
         FullName: { type: sql.NVarChar(200), value: input.fullName },
-        Role: { type: sql.VarChar(20), value: input.role },
+        RoleId: { type: sql.Int, value: input.roleId },
+        AreaId: optionalInt(input.areaId),
+        ActorId: optionalInt(input.actorId),
       },
     });
     return this.single(rows, 'usp_Users_Create');
@@ -117,7 +149,8 @@ export class SqlUserRepository implements UserRepository {
       inputs: {
         UserId: { type: sql.Int, value: input.userId },
         FullName: { type: sql.NVarChar(200), value: input.fullName },
-        Role: { type: sql.VarChar(20), value: input.role },
+        RoleId: { type: sql.Int, value: input.roleId },
+        AreaId: optionalInt(input.areaId),
         ChangedBy: { type: sql.Int, value: input.changedBy },
       },
     });
@@ -135,22 +168,29 @@ export class SqlUserRepository implements UserRepository {
     return this.single(rows, 'usp_Users_SetActive');
   }
 
-  async updatePassword(userId: number, passwordHash: string): Promise<void> {
+  async updatePassword(
+    userId: number,
+    passwordHash: string,
+    actorId: number | null,
+  ): Promise<void> {
     await this.db.execute('dbo.usp_Users_UpdatePassword', {
       inputs: {
         UserId: { type: sql.Int, value: userId },
         PasswordHash: { type: sql.VarChar(200), value: passwordHash },
+        ActorId: optionalInt(actorId),
       },
     });
   }
 
-  async listAssignable(): Promise<AssignableUser[]> {
-    const { rows } = await this.db.execute<AssignableRow>('dbo.usp_Users_ListAssignable');
+  async listAssignable(actorId: number): Promise<AssignableUser[]> {
+    const { rows } = await this.db.execute<AssignableRow>('dbo.usp_Users_ListAssignable', {
+      inputs: { ActorId: { type: sql.Int, value: actorId } },
+    });
     return rows.map((row) => ({
       id: row.UserId,
       username: row.Username,
       fullName: row.FullName,
-      role: row.Role,
+      area: areaOf(row),
     }));
   }
 

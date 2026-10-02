@@ -2,8 +2,8 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import type { AppConfig } from '../../config/env.js';
 import { UnauthorizedError } from '../../core/errors.js';
-import { ROLES } from '../users/user.types.js';
-import type { AuthUser, IssuedToken, TokenService, VerifiedToken } from './auth.types.js';
+import type { UserIdentity } from '../users/user.types.js';
+import type { IssuedToken, TokenService, VerifiedToken } from './auth.types.js';
 
 const ALGORITHM = 'HS256';
 const ISSUER = 'task-manager-api';
@@ -14,7 +14,6 @@ const payloadSchema = z.object({
   sub: z.string().regex(/^\d+$/),
   username: z.string(),
   name: z.string(),
-  role: z.enum(ROLES),
   pwv: z.number().int().nonnegative(),
 });
 
@@ -31,11 +30,10 @@ export class JwtTokenService implements TokenService {
     this.expiresInSeconds = durationToSeconds(config.jwtExpiresIn);
   }
 
-  issue(user: AuthUser, passwordVersion: number): IssuedToken {
+  issue(user: UserIdentity, passwordVersion: number): IssuedToken {
     const claims = {
       username: user.username,
       name: user.fullName,
-      role: user.role,
       pwv: passwordVersion,
     };
     const token = jwt.sign(claims, this.config.jwtSecret, {
@@ -56,15 +54,7 @@ export class JwtTokenService implements TokenService {
         audience: AUDIENCE,
       });
       const payload = payloadSchema.parse(decoded);
-      return {
-        user: {
-          id: Number(payload.sub),
-          username: payload.username,
-          fullName: payload.name,
-          role: payload.role,
-        },
-        passwordVersion: payload.pwv,
-      };
+      return { userId: Number(payload.sub), passwordVersion: payload.pwv };
     } catch {
       throw new UnauthorizedError('La sesión no es válida o expiró. Inicia sesión de nuevo.');
     }

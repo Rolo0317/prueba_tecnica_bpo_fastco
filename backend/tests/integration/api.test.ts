@@ -20,7 +20,7 @@ describe('POST /api/v1/auth/login', () => {
     expect(res.body).toMatchObject({
       tokenType: 'Bearer',
       expiresIn: 3600,
-      user: { username: 'admin', role: 'ADMIN' },
+      user: { username: 'admin', role: { name: 'Administrador' }, area: null },
     });
 
     const protectedRes = await request(ctx.app)

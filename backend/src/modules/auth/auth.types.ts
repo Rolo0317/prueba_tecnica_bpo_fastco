@@ -1,7 +1,15 @@
-import type { Role, User } from '../users/user.types.js';
+import type { NamedRef, Permission } from '../access/access.types.js';
+import type { UserIdentity } from '../users/user.types.js';
 
-/** Usuario autenticado que viaja en el JWT y se adjunta a cada petición. */
-export type AuthUser = User;
+/**
+ * Usuario autenticado que se adjunta a cada petición. Rol, área y permisos se leen de la
+ * BD en cada petición (no viajan en el JWT), así un cambio aplica de inmediato.
+ */
+export interface AuthUser extends UserIdentity {
+  role: NamedRef;
+  area: NamedRef | null;
+  permissions: Permission[];
+}
 
 export interface IssuedToken {
   token: string;
@@ -27,18 +35,18 @@ export function passwordVersionOf(passwordChangedAt: string | null): number {
 }
 
 export interface VerifiedToken {
-  user: AuthUser;
+  userId: number;
   passwordVersion: number;
 }
 
 export interface TokenService {
-  issue(user: AuthUser, passwordVersion: number): IssuedToken;
+  issue(user: UserIdentity, passwordVersion: number): IssuedToken;
   verify(token: string): VerifiedToken;
 }
 
 /** Estado vigente de un usuario en la BD, consultado en cada petición autenticada. */
 export interface SessionState {
-  role: Role;
+  user: AuthUser;
   passwordVersion: number;
 }
 

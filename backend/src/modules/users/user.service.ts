@@ -1,19 +1,19 @@
 import { UnauthorizedError, ValidationError } from '../../core/errors.js';
 import { toPaginated, type Paginated } from '../../core/pagination.js';
 import type { PasswordHasher } from '../auth/auth.types.js';
-import type { ManagedUser, Role, UserRepository } from './user.types.js';
+import type { ManagedUser, UserAssignment, UserRepository } from './user.types.js';
 
-export interface NewUser {
+export interface NewUser extends UserAssignment {
   username: string;
   fullName: string;
-  role: Role;
   password: string;
 }
 
 /**
- * Casos de uso de usuarios. Las reglas de integridad (no auto-desactivarse, siempre
- * un administrador activo) viven en los Stored Procedures; aquí se aplica el hash
- * de contraseñas y la verificación de la contraseña actual.
+ * Casos de uso de usuarios. Las reglas de integridad y seguridad (sin escalada de
+ * privilegios, no auto-desactivarse, siempre un Administrador activo) viven en los
+ * Stored Procedures, que reciben quién hace cada cambio; aquí se aplica el hash de
+ * contraseñas y la verificación de la contraseña actual.
  */
 export class UserService {
   constructor(
@@ -26,11 +26,12 @@ export class UserService {
     return toPaginated(users, total, page, pageSize);
   }
 
-  async create({ password, ...user }: NewUser): Promise<ManagedUser> {
-    return this.users.create({ ...user, passwordHash: await this.passwordHasher.hash(password) });
+  async create({ password, ...user }: NewUser, actorId: number): Promise<ManagedUser> {
+    const passwordHash = await this.passwordHasher.hash(password);
+    return this.users.create({ ...user, passwordHash, actorId });
   }
 
-  update(userId: number, data: { fullName: string; role: Role }, changedBy: number) {
+  update(userId: number, data: UserAssignment & { fullName: string }, changedBy: number) {
     return this.users.update({ userId, ...data, changedBy });
   }
 
@@ -38,8 +39,8 @@ export class UserService {
     return this.users.setActive({ userId, isActive, changedBy });
   }
 
-  listAssignable() {
-    return this.users.listAssignable();
+  listAssignable(actorId: number) {
+    return this.users.listAssignable(actorId);
   }
 
   /** Eliminación lógica: se conserva el rastro en tareas e historial (auditoría). */
@@ -47,9 +48,9 @@ export class UserService {
     return { unassignedTasks: await this.users.delete(userId, changedBy) };
   }
 
-  /** Un administrador asigna una contraseña nueva a otro usuario (p. ej. si la olvidó). */
-  async resetPassword(userId: number, newPassword: string): Promise<void> {
-    await this.users.updatePassword(userId, await this.passwordHasher.hash(newPassword));
+  /** Quien administra usuarios asigna una contraseña nueva a otro (p. ej. si la olvidó). */
+  async resetPassword(userId: number, newPassword: string, actorId: number): Promise<void> {
+    await this.users.updatePassword(userId, await this.passwordHasher.hash(newPassword), actorId);
   }
 
   /** Cualquier usuario cambia su propia contraseña demostrando que conoce la actual. */
@@ -70,6 +71,6 @@ export class UserService {
         { field: 'newPassword', message: 'Debe ser diferente de la contraseña actual.' },
       ]);
     }
-    await this.users.updatePassword(userId, await this.passwordHasher.hash(newPassword));
+    await this.users.updatePassword(userId, await this.passwordHasher.hash(newPassword), null);
   }
 }

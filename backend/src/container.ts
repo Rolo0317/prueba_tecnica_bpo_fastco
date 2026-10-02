@@ -1,5 +1,7 @@
 import type { AppConfig } from './config/env.js';
 import type { ProcedureRunner } from './database/procedure-executor.js';
+import { SqlAccessRepository } from './modules/access/access.repository.js';
+import { AccessService } from './modules/access/access.service.js';
 import { AuthService } from './modules/auth/auth.service.js';
 import type { PasswordHasher, SessionStore, TokenService } from './modules/auth/auth.types.js';
 import { BcryptPasswordHasher } from './modules/auth/password-hasher.js';
@@ -20,6 +22,7 @@ export interface Container {
   authService: AuthService;
   taskService: TaskService;
   userService: UserService;
+  accessService: AccessService;
 }
 
 /** Composition root: el único lugar donde se eligen las implementaciones concretas. */
@@ -38,5 +41,6 @@ export function createContainer(config: AppConfig, db: ProcedureRunner): Contain
     authService: new AuthService(userRepository, passwordHasher, tokenService),
     taskService: new TaskService(taskRepository),
     userService: new UserService(userRepository, passwordHasher),
+    accessService: new AccessService(new SqlAccessRepository(db)),
   };
 }

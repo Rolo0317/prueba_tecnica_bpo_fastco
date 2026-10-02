@@ -3,6 +3,7 @@ import {
   createFailedAttemptsLimiter,
   type FailedAttemptsLimit,
 } from '../../middlewares/rate-limit.js';
+import { requirePermission } from '../../middlewares/authorize.js';
 import { withValidation } from '../../middlewares/validate.js';
 import type { UserController } from './user.controller.js';
 import {
@@ -15,12 +16,15 @@ import {
   updateUserSchemas,
 } from './user.schemas.js';
 
-/** Administración de usuarios (se monta detrás de requireRole('ADMIN')). */
+/** Administración de usuarios. */
 export function createUserRouter(controller: UserController): Router {
   const router = Router();
 
+  // Responsables posibles: los necesita quien asigna tareas (el SP limita a su área si aplica).
+  router.get('/assignable', requirePermission('TASKS_ASSIGN'), controller.listAssignable);
+
+  router.use(requirePermission('USERS_MANAGE'));
   router.get('/', withValidation(listUsersSchemas, controller.list));
-  router.get('/assignable', controller.listAssignable);
   router.post('/', withValidation(createUserSchemas, controller.create));
   router.patch('/:id', withValidation(updateUserSchemas, controller.update));
   router.patch('/:id/status', withValidation(setUserStatusSchemas, controller.setStatus));
@@ -36,6 +40,8 @@ export function createAccountRouter(
   limit?: FailedAttemptsLimit,
 ): Router {
   const router = Router();
+
+  router.get('/me', controller.me);
 
   // Verifica la contraseña actual: se limita igual que el login.
   router.put(

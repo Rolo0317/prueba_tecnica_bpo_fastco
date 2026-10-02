@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   bearerFor,
   buildTestContext,
+  AREA,
+  ROLE,
   TEST_AGENT,
   TEST_USER,
   type TestContext,
@@ -19,7 +21,8 @@ const asAgent = () => bearerFor(ctx, 'AGENT');
 const NEW_USER = {
   username: 'nuevo.agente',
   fullName: 'Nuevo Agente',
-  role: 'AGENT',
+  roleId: ROLE.COLLABORATOR,
+  areaId: AREA.FINANCE,
   password: 'Segura-2026x',
 };
 
@@ -33,7 +36,7 @@ describe('Administración de usuarios: autorización', () => {
     ['PATCH', '/api/v1/users/2'],
     ['PATCH', '/api/v1/users/2/status'],
     ['PUT', '/api/v1/users/2/password'],
-  ])('403 para un agente en %s %s', async (method, path) => {
+  ])('403 para un colaborador en %s %s', async (method, path) => {
     const method_ = method.toLowerCase() as 'get' | 'post' | 'patch' | 'put';
     const res = await request(ctx.app)[method_](path).set('Authorization', asAgent());
 
@@ -55,15 +58,21 @@ describe('Administración de usuarios: casos de uso', () => {
     expect(JSON.stringify(res.body)).not.toMatch(/passwordHash|hashed:/);
   });
 
-  it('POST 201 crea un usuario que puede iniciar sesión con su rol', async () => {
+  it('POST 201 crea un usuario con rol y área que puede iniciar sesión', async () => {
     const res = await request(ctx.app)
       .post('/api/v1/users')
       .set('Authorization', asAdmin())
       .send(NEW_USER);
 
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ username: 'nuevo.agente', role: 'AGENT', isActive: true });
-    expect((await login(NEW_USER.username, NEW_USER.password)).body.user.role).toBe('AGENT');
+    expect(res.body).toMatchObject({
+      username: 'nuevo.agente',
+      role: { id: ROLE.COLLABORATOR, name: 'Colaborador' },
+      area: { id: AREA.FINANCE, name: 'Finanzas' },
+      isActive: true,
+    });
+    const session = await login(NEW_USER.username, NEW_USER.password);
+    expect(session.body.user).toMatchObject({ role: { name: 'Colaborador' }, permissions: [] });
   });
 
   it('POST 400 aplica la política de contraseñas y el formato del usuario', async () => {
@@ -87,14 +96,27 @@ describe('Administración de usuarios: casos de uso', () => {
     expect(res.status).toBe(409);
   });
 
-  it('PATCH edita nombre y rol', async () => {
+  it('PATCH edita nombre, rol y área', async () => {
     const res = await request(ctx.app)
       .patch('/api/v1/users/2')
       .set('Authorization', asAdmin())
-      .send({ fullName: 'Agente Senior', role: 'ADMIN' });
+      .send({ fullName: 'Agente Senior', roleId: ROLE.SUPERVISOR, areaId: AREA.FINANCE });
 
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ fullName: 'Agente Senior', role: 'ADMIN' });
+    expect(res.body).toMatchObject({
+      fullName: 'Agente Senior',
+      role: { name: 'Supervisor' },
+      area: { name: 'Finanzas' },
+    });
+  });
+
+  it('400 si el rol o el área no existen', async () => {
+    const res = await request(ctx.app)
+      .post('/api/v1/users')
+      .set('Authorization', asAdmin())
+      .send({ ...NEW_USER, roleId: 99 });
+
+    expect(res.status).toBe(400);
   });
 
   it('desactivar a un usuario le impide iniciar sesión; reactivarlo lo habilita', async () => {
@@ -111,7 +133,7 @@ describe('Administración de usuarios: casos de uso', () => {
     expect((await login(TEST_AGENT.username, TEST_AGENT.password)).status).toBe(200);
   });
 
-  it('409: un administrador no puede desactivarse ni quitarse el rol', async () => {
+  it('409: nadie puede desactivarse ni cambiarse el rol a sí mismo', async () => {
     const deactivateSelf = await request(ctx.app)
       .patch('/api/v1/users/1/status')
       .set('Authorization', asAdmin())
@@ -119,7 +141,7 @@ describe('Administración de usuarios: casos de uso', () => {
     const demoteSelf = await request(ctx.app)
       .patch('/api/v1/users/1')
       .set('Authorization', asAdmin())
-      .send({ fullName: 'Admin', role: 'AGENT' });
+      .send({ fullName: 'Admin', roleId: ROLE.COLLABORATOR });
 
     expect(deactivateSelf.status).toBe(409);
     expect(demoteSelf.status).toBe(409);
@@ -150,7 +172,7 @@ describe('Cambio de la propia contraseña (cualquier rol)', () => {
   const changeOwn = (token: string, body: object) =>
     request(ctx.app).put('/api/v1/account/password').set('Authorization', token).send(body);
 
-  it('200: un agente cambia su contraseña, recibe una sesión nueva y la anterior deja de funcionar', async () => {
+  it('200: un colaborador cambia su contraseña, recibe una sesión nueva y la anterior deja de funcionar', async () => {
     const res = await changeOwn(asAgent(), {
       currentPassword: TEST_AGENT.password,
       newPassword: 'Nueva-Clave-2026',

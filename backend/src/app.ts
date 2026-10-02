@@ -6,8 +6,14 @@ import { pinoHttp } from 'pino-http';
 import type { AppConfig } from './config/env.js';
 import { createAuthenticate } from './middlewares/authenticate.js';
 import { createErrorHandler, notFoundHandler } from './middlewares/error-handler.js';
+import { AccessController } from './modules/access/access.controller.js';
+import {
+  createAreaRouter,
+  createPermissionRouter,
+  createRoleRouter,
+} from './modules/access/access.routes.js';
+import type { AccessService } from './modules/access/access.service.js';
 import { AuthController } from './modules/auth/auth.controller.js';
-import { requireRole } from './middlewares/authorize.js';
 import type { FailedAttemptsLimit } from './middlewares/rate-limit.js';
 import { createAuthRouter } from './modules/auth/auth.routes.js';
 import type { AuthService } from './modules/auth/auth.service.js';
@@ -26,6 +32,7 @@ export interface AppDependencies {
   authService: AuthService;
   taskService: TaskService;
   userService: UserService;
+  accessService: AccessService;
   tokenService: TokenService;
   sessionStore: SessionStore;
   checkDatabase: HealthCheck;
@@ -38,6 +45,7 @@ function createApiRouter(deps: AppDependencies): Router {
   const userController = new UserController(deps.userService, (userId) =>
     deps.authService.issueSession(userId),
   );
+  const accessController = new AccessController(deps.accessService);
   const api = Router();
 
   api.use(
@@ -46,7 +54,10 @@ function createApiRouter(deps: AppDependencies): Router {
   );
   api.use('/tasks', authenticate, createTaskRouter(taskController));
   api.use('/task-statuses', authenticate, createTaskStatusRouter(taskController));
-  api.use('/users', authenticate, requireRole('ADMIN'), createUserRouter(userController));
+  api.use('/users', authenticate, createUserRouter(userController));
+  api.use('/roles', authenticate, createRoleRouter(accessController));
+  api.use('/permissions', authenticate, createPermissionRouter(accessController));
+  api.use('/areas', authenticate, createAreaRouter(accessController));
   api.use('/account', authenticate, createAccountRouter(userController, deps.failedAttemptsLimit));
 
   return api;

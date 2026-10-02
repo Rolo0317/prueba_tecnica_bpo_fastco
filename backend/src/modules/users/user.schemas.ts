@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { ROLES } from './user.types.js';
 
 /** Política de contraseñas: la misma regla se aplica al crear, restablecer y cambiar. */
 export const passwordPolicy = z
@@ -11,7 +10,16 @@ export const passwordPolicy = z
   .regex(/\d/, 'Debe incluir al menos un número.');
 
 const fullName = z.string().trim().min(1, 'El nombre es obligatorio.').max(100);
-const role = z.enum(ROLES);
+/** Rol y área asignados al usuario (el SP valida que existan y que no haya escalada). */
+const assignment = {
+  roleId: z.number({ error: 'Selecciona un rol.' }).int().positive('Selecciona un rol.'),
+  areaId: z
+    .number()
+    .int()
+    .positive('El área no es válida.')
+    .nullish()
+    .transform((value) => value ?? null),
+};
 const userIdParams = z.object({ id: z.coerce.number().int().positive('El id no es válido.') });
 
 export const listUsersSchemas = {
@@ -30,14 +38,14 @@ export const createUserSchemas = {
       .max(50)
       .regex(/^[a-zA-Z0-9._-]+$/, 'Solo letras sin tilde, números, punto, guion y guion bajo.'),
     fullName,
-    role: role.default('AGENT'),
+    ...assignment,
     password: passwordPolicy,
   }),
 };
 
 export const updateUserSchemas = {
   params: userIdParams,
-  body: z.strictObject({ fullName, role }),
+  body: z.strictObject({ fullName, ...assignment }),
 };
 
 export const setUserStatusSchemas = {

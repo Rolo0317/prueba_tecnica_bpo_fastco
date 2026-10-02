@@ -38,7 +38,7 @@ export class TaskController {
   };
 
   stats: ValidatedHandler<typeof taskStatsSchemas> = async ({ query }, req, res) => {
-    res.status(200).json(await this.taskService.stats(query.today, requireAuthUser(req)));
+    res.status(200).json(await this.taskService.stats(query, requireAuthUser(req)));
   };
 
   timeline: ValidatedHandler<typeof taskTimelineSchemas> = async ({ params }, req, res) => {

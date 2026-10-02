@@ -22,11 +22,11 @@ import type {
   TaskPage,
   TaskRepository,
   TaskNote,
+  TaskStatsFilter,
   TaskStatsSnapshot,
   TaskStatus,
   TimelineEvent,
   UpdateTaskInput,
-  ViewerScope,
 } from './task.types.js';
 
 const optionalInt = (value: number | null | undefined): ProcedureParameter => ({
@@ -54,9 +54,10 @@ export class SqlTaskRepository implements TaskRepository {
     const { rows, output } = await this.db.execute<TaskRow>('dbo.usp_Tasks_List', {
       inputs: {
         StatusCode: { type: sql.VarChar(20), value: filter.status ?? null },
+        AreaId: optionalInt(filter.areaId),
         Page: { type: sql.Int, value: filter.page },
         PageSize: { type: sql.Int, value: filter.pageSize },
-        ViewerId: optionalInt(filter.viewerId),
+        ViewerId: { type: sql.Int, value: filter.viewerId },
       },
       outputs: { TotalCount: sql.Int },
     });
@@ -68,6 +69,7 @@ export class SqlTaskRepository implements TaskRepository {
       inputs: {
         ...taskDataInputs(input),
         AssignedTo: optionalInt(input.assignedTo),
+        AreaId: optionalInt(input.areaId),
         CreatedBy: { type: sql.Int, value: input.createdBy },
       },
     });
@@ -81,8 +83,9 @@ export class SqlTaskRepository implements TaskRepository {
         ...taskDataInputs(input),
         AssignedTo: optionalInt(input.assignedTo),
         ChangeAssignee: { type: sql.Bit, value: input.assignedTo !== undefined },
-        ActorId: optionalInt(input.actorId),
-        ChangedBy: { type: sql.Int, value: input.changedBy },
+        AreaId: optionalInt(input.areaId),
+        ChangeArea: { type: sql.Bit, value: input.areaId !== undefined },
+        ActorId: { type: sql.Int, value: input.actorId },
       },
     });
     return this.singleTask(rows, 'usp_Tasks_Update');
@@ -94,7 +97,6 @@ export class SqlTaskRepository implements TaskRepository {
         TaskId: { type: sql.Int, value: input.taskId },
         StatusCode: { type: sql.VarChar(20), value: input.status },
         ChangedBy: { type: sql.Int, value: input.changedBy },
-        ViewerId: optionalInt(input.viewerId),
       },
     });
     return this.singleTask(rows, 'usp_Tasks_ChangeStatus');
@@ -105,9 +107,13 @@ export class SqlTaskRepository implements TaskRepository {
     return rows.map(toTaskStatus);
   }
 
-  async stats(today: string | null, viewerId?: ViewerScope): Promise<TaskStatsSnapshot> {
+  async stats({ today, areaId, viewerId }: TaskStatsFilter): Promise<TaskStatsSnapshot> {
     const { rows, output } = await this.db.execute<StatusCountRow>('dbo.usp_Tasks_Stats', {
-      inputs: { Today: dateOnly(today), ViewerId: optionalInt(viewerId) },
+      inputs: {
+        Today: dateOnly(today),
+        ViewerId: { type: sql.Int, value: viewerId },
+        AreaId: optionalInt(areaId),
+      },
       outputs: {
         Total: sql.Int,
         Overdue: sql.Int,
@@ -135,7 +141,6 @@ export class SqlTaskRepository implements TaskRepository {
         TaskId: { type: sql.Int, value: input.taskId },
         Body: { type: sql.NVarChar(2000), value: input.body },
         CreatedBy: { type: sql.Int, value: input.createdBy },
-        ViewerId: optionalInt(input.viewerId),
       },
     });
     const [row] = rows;
@@ -143,11 +148,11 @@ export class SqlTaskRepository implements TaskRepository {
     return toTaskNote(row);
   }
 
-  async timeline(taskId: number, viewerId: ViewerScope): Promise<TimelineEvent[]> {
+  async timeline(taskId: number, viewerId: number): Promise<TimelineEvent[]> {
     const { rows } = await this.db.execute<TimelineRow>('dbo.usp_Tasks_Timeline', {
       inputs: {
         TaskId: { type: sql.Int, value: taskId },
-        ViewerId: optionalInt(viewerId),
+        ViewerId: { type: sql.Int, value: viewerId },
       },
     });
     return rows.map(toTimelineEvent);

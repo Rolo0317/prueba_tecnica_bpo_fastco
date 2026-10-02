@@ -8,9 +8,14 @@ import {
 } from '../../src/modules/tasks/task.mapper.js';
 import { createTaskSchemas, listTasksSchemas } from '../../src/modules/tasks/task.schemas.js';
 import { TaskService } from '../../src/modules/tasks/task.service.js';
-import { InMemoryTaskRepository } from '../helpers/fakes.js';
-
-const admin = { id: 1, username: 'admin', fullName: 'Admin', role: 'ADMIN' as const };
+import {
+  addUser,
+  AREA,
+  authUserOf,
+  createTestUsers,
+  InMemoryTaskRepository,
+  ROLE,
+} from '../helpers/fakes.js';
 
 describe('task.mapper', () => {
   const row: TaskRow = {
@@ -25,6 +30,8 @@ describe('task.mapper', () => {
     CreatedByName: 'Agente Uno',
     AssignedToId: 3,
     AssignedToName: 'Agente Dos',
+    AreaId: 2,
+    AreaName: 'Finanzas',
     NotesCount: 4,
     CreatedAt: new Date('2026-10-01T13:45:00.000Z'),
     UpdatedAt: new Date('2026-10-01T13:45:00.000Z'),
@@ -40,6 +47,7 @@ describe('task.mapper', () => {
       dueDate: '2026-10-15',
       createdBy: { id: 2, name: 'Agente Uno' },
       assignedTo: { id: 3, name: 'Agente Dos' },
+      area: { id: 2, name: 'Finanzas' },
       notesCount: 4,
       createdAt: '2026-10-01T13:45:00.000Z',
       updatedAt: '2026-10-01T13:45:00.000Z',
@@ -93,8 +101,6 @@ describe('task.schemas', () => {
 });
 
 describe('TaskService', () => {
-  const agent = { id: 2, username: 'agente', fullName: 'Agente', role: 'AGENT' as const };
-  const otherAgent = { id: 3, username: 'otro', fullName: 'Otro', role: 'AGENT' as const };
   const data = (title: string) => ({
     title,
     description: null,
@@ -102,13 +108,22 @@ describe('TaskService', () => {
     dueDate: null,
   });
 
-  const setup = () => {
-    const repository = new InMemoryTaskRepository();
-    return { repository, service: new TaskService(repository) };
+  /** 1 = Administrador; 2 y 3 = Colaboradores de Operaciones; 4 = Supervisor de Operaciones. */
+  const setup = async () => {
+    const users = await createTestUsers();
+    await addUser(users, { username: 'otro', roleId: ROLE.COLLABORATOR, areaId: AREA.OPERATIONS });
+    await addUser(users, { username: 'super', roleId: ROLE.SUPERVISOR, areaId: AREA.OPERATIONS });
+    return {
+      service: new TaskService(new InMemoryTaskRepository(users)),
+      admin: await authUserOf(users, 1),
+      agent: await authUserOf(users, 2),
+      otherAgent: await authUserOf(users, 3),
+      supervisor: await authUserOf(users, 4),
+    };
   };
 
   it('calcula la paginación a partir del total', async () => {
-    const { service } = setup();
+    const { service, admin } = await setup();
     for (let i = 1; i <= 23; i++) await service.create(data(`Tarea ${i}`), admin);
 
     const result = await service.list({ page: 3, pageSize: 10 }, admin);
@@ -118,14 +133,15 @@ describe('TaskService', () => {
   });
 
   it('devuelve 0 páginas cuando no hay resultados', async () => {
-    const result = await setup().service.list({ page: 1, pageSize: 10 }, admin);
+    const { service, admin } = await setup();
+    const result = await service.list({ page: 1, pageSize: 10 }, admin);
 
     expect(result.pagination.totalPages).toBe(0);
     expect(result.data).toEqual([]);
   });
 
-  it('un agente solo ve lo asignado a él y lo que creó; el administrador ve todo', async () => {
-    const { service } = setup();
+  it('un colaborador solo ve lo asignado a él y lo que creó; el administrador ve todo', async () => {
+    const { service, admin, agent, otherAgent } = await setup();
     await service.create({ ...data('Para el agente'), assignedTo: agent.id }, admin);
     await service.create({ ...data('Para otro'), assignedTo: otherAgent.id }, admin);
     await service.create(data('Creada por el agente'), agent);
@@ -140,19 +156,20 @@ describe('TaskService', () => {
     expect(seenByAdmin.pagination.total).toBe(3);
   });
 
-  it('la tarea que crea un agente queda asignada a él; no puede asignarla a otra persona', async () => {
-    const { service } = setup();
+  it('la tarea de un colaborador queda asignada a él y en su área; no la asigna a otro', async () => {
+    const { service, agent, otherAgent } = await setup();
 
     const own = await service.create(data('Propia'), agent);
 
     expect(own.assignedTo?.id).toBe(agent.id);
+    expect(own.area?.id).toBe(AREA.OPERATIONS);
     await expect(
       service.create({ ...data('Ajena'), assignedTo: otherAgent.id }, agent),
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
 
-  it('un agente edita lo que creó pero no reasigna; el administrador sí reasigna', async () => {
-    const { service } = setup();
+  it('un colaborador edita lo que creó pero no reasigna; el administrador sí reasigna', async () => {
+    const { service, admin, agent, otherAgent } = await setup();
     const task = await service.create(data('Original'), agent);
 
     const edited = await service.update(task.id, data('Editada'), agent);
@@ -170,13 +187,47 @@ describe('TaskService', () => {
     expect(reassigned.assignedTo?.id).toBe(otherAgent.id);
   });
 
-  it('las estadísticas de un agente cuentan solo sus tareas visibles', async () => {
-    const { service } = setup();
+  it('las estadísticas de un colaborador cuentan solo sus tareas visibles', async () => {
+    const { service, admin, agent, otherAgent } = await setup();
     await service.create({ ...data('Suya'), assignedTo: agent.id }, admin);
     await service.create({ ...data('De otro'), assignedTo: otherAgent.id }, admin);
 
-    expect((await service.stats(null, agent)).total).toBe(1);
-    expect((await service.stats(null, admin)).total).toBe(2);
+    expect((await service.stats({ today: null }, agent)).total).toBe(1);
+    expect((await service.stats({ today: null }, admin)).total).toBe(2);
+  });
+
+  it('un supervisor ve, edita y asigna las tareas de su área, pero no las de otra', async () => {
+    const { service, admin, agent, otherAgent, supervisor } = await setup();
+    const ops = await service.create({ ...data('Operaciones'), areaId: AREA.OPERATIONS }, admin);
+    await service.create({ ...data('Finanzas'), areaId: AREA.FINANCE }, admin);
+
+    const seen = await service.list({ page: 1, pageSize: 10 }, supervisor);
+    expect(seen.data.map((t) => t.title)).toEqual(['Operaciones']);
+
+    const edited = await service.update(
+      ops.id,
+      { ...data('Operaciones (editada)'), assignedTo: otherAgent.id },
+      supervisor,
+    );
+    expect(edited.assignedTo?.id).toBe(otherAgent.id);
+
+    await expect(
+      service.update(ops.id, { ...data('X'), areaId: AREA.FINANCE }, supervisor),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      service.update(ops.id, { ...data('X'), assignedTo: admin.id }, supervisor),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect((await service.list({ page: 1, pageSize: 10 }, agent)).pagination.total).toBe(0);
+  });
+
+  it('el filtro por área limita el listado dentro de lo visible', async () => {
+    const { service, admin } = await setup();
+    await service.create({ ...data('Operaciones'), areaId: AREA.OPERATIONS }, admin);
+    await service.create({ ...data('Finanzas'), areaId: AREA.FINANCE }, admin);
+
+    const finance = await service.list({ page: 1, pageSize: 10, areaId: AREA.FINANCE }, admin);
+
+    expect(finance.data.map((t) => t.title)).toEqual(['Finanzas']);
   });
 });
 

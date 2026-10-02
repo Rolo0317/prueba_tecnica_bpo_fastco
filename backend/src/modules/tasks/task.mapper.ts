@@ -13,6 +13,8 @@ export interface TaskRow {
   CreatedByName: string;
   AssignedToId: number | null;
   AssignedToName: string | null;
+  AreaId: number | null;
+  AreaName: string | null;
   NotesCount: number;
   CreatedAt: Date;
   UpdatedAt: Date;
@@ -58,6 +60,7 @@ export function toTask(row: TaskRow): Task {
     createdBy: { id: row.CreatedById, name: row.CreatedByName },
     assignedTo:
       row.AssignedToId === null ? null : { id: row.AssignedToId, name: row.AssignedToName ?? '' },
+    area: row.AreaId === null ? null : { id: row.AreaId, name: row.AreaName ?? '' },
     notesCount: row.NotesCount,
     createdAt: row.CreatedAt.toISOString(),
     updatedAt: row.UpdatedAt.toISOString(),

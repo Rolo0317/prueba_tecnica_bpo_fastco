@@ -1,6 +1,12 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { bearerFor, buildTestContext, TEST_AGENT, type TestContext } from '../helpers/fakes.js';
+import {
+  bearerFor,
+  buildTestContext,
+  ROLE,
+  TEST_AGENT,
+  type TestContext,
+} from '../helpers/fakes.js';
 
 let ctx: TestContext;
 
@@ -38,7 +44,7 @@ describe('Vigencia de las sesiones', () => {
   });
 
   it('un cambio de rol aplica en la siguiente petición, sin esperar a que expire el token', async () => {
-    // El agente pasa a administrador: su token (que dice AGENT) ya puede administrar usuarios.
+    // El colaborador pasa a Administrador: con el mismo token ya puede administrar usuarios.
     const agentToken = bearerFor(ctx, 'AGENT');
     expect(
       (await request(ctx.app).get('/api/v1/users').set('Authorization', agentToken)).status,
@@ -47,7 +53,7 @@ describe('Vigencia de las sesiones', () => {
     await request(ctx.app)
       .patch(`/api/v1/users/${AGENT_ID}`)
       .set('Authorization', asAdmin())
-      .send({ fullName: 'Agente ascendido', role: 'ADMIN' });
+      .send({ fullName: 'Agente ascendido', roleId: ROLE.ADMIN });
     expect(
       (await request(ctx.app).get('/api/v1/users').set('Authorization', agentToken)).status,
     ).toBe(200);
@@ -56,7 +62,7 @@ describe('Vigencia de las sesiones', () => {
     await request(ctx.app)
       .patch(`/api/v1/users/${AGENT_ID}`)
       .set('Authorization', asAdmin())
-      .send({ fullName: 'Agente', role: 'AGENT' });
+      .send({ fullName: 'Agente', roleId: ROLE.COLLABORATOR });
     expect(
       (await request(ctx.app).get('/api/v1/users').set('Authorization', agentToken)).status,
     ).toBe(403);

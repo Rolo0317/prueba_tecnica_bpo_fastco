@@ -26,8 +26,8 @@ export class UserController {
     res.status(200).json(await this.userService.list(query.page, query.pageSize));
   };
 
-  create: ValidatedHandler<typeof createUserSchemas> = async ({ body }, _req, res) => {
-    const user = await this.userService.create(body);
+  create: ValidatedHandler<typeof createUserSchemas> = async ({ body }, req, res) => {
+    const user = await this.userService.create(body, requireAuthUser(req).id);
     res.status(201).location(`/api/v1/users/${user.id}`).json(user);
   };
 
@@ -44,8 +44,13 @@ export class UserController {
     res.status(200).json(user);
   };
 
-  listAssignable: RequestHandler = async (_req, res) => {
-    res.status(200).json(await this.userService.listAssignable());
+  listAssignable: RequestHandler = async (req, res) => {
+    res.status(200).json(await this.userService.listAssignable(requireAuthUser(req).id));
+  };
+
+  /** Usuario autenticado con su rol, área y permisos vigentes. */
+  me: RequestHandler = (req, res) => {
+    res.status(200).json(requireAuthUser(req));
   };
 
   remove: ValidatedHandler<typeof deleteUserSchemas> = async ({ params }, req, res) => {
@@ -54,10 +59,10 @@ export class UserController {
 
   resetPassword: ValidatedHandler<typeof resetPasswordSchemas> = async (
     { params, body },
-    _req,
+    req,
     res,
   ) => {
-    await this.userService.resetPassword(params.id, body.newPassword);
+    await this.userService.resetPassword(params.id, body.newPassword, requireAuthUser(req).id);
     res.status(204).end();
   };
 

@@ -10,6 +10,11 @@ const statusCode = z
 
 const emptyToUndefined = (value: unknown): unknown => (value === '' ? undefined : value);
 
+const optionalAreaId = z.preprocess(
+  emptyToUndefined,
+  z.coerce.number().int().positive('El área no es válida.').optional(),
+);
+
 const taskIdParams = z.object({
   id: z.coerce.number().int().positive('El id de la tarea no es válido.'),
 });
@@ -34,11 +39,14 @@ const taskBody = z.strictObject({
     .transform((value) => value ?? null),
   /** Responsable: id de usuario, null = sin asignar, ausente = no cambiar / valor por defecto. */
   assignedTo: z.number().int().positive('El responsable no es válido.').nullable().optional(),
+  /** Área: id, null = sin área, ausente = la de quien crea / no cambiar. */
+  areaId: z.number().int().positive('El área no es válida.').nullable().optional(),
 });
 
 export const listTasksSchemas = {
   query: z.object({
     status: z.preprocess(emptyToUndefined, statusCode.optional()),
+    areaId: optionalAreaId,
     page: z.coerce.number().int().min(1).max(100_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(10),
   }),
@@ -55,6 +63,7 @@ export const taskStatsSchemas = {
       .date('La fecha debe tener el formato AAAA-MM-DD.')
       .optional()
       .transform((value) => value ?? null),
+    areaId: optionalAreaId,
   }),
 };
 

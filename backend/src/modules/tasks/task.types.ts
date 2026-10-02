@@ -1,3 +1,5 @@
+import type { NamedRef } from '../access/access.types.js';
+
 export const PRIORITY_CODES = ['HIGH', 'MEDIUM', 'LOW'] as const;
 export type PriorityCode = (typeof PRIORITY_CODES)[number];
 
@@ -10,7 +12,9 @@ export interface Task {
   dueDate: string | null;
   createdBy: { id: number; name: string };
   /** Responsable de la tarea; null = sin asignar. */
-  assignedTo: { id: number; name: string } | null;
+  assignedTo: NamedRef | null;
+  /** Área a la que pertenece; null = sin área. */
+  area: NamedRef | null;
   /** Cantidad de avances registrados (seguimiento). */
   notesCount: number;
   createdAt: string;
@@ -24,17 +28,14 @@ export interface TaskStatus {
   allowedTransitions: string[];
 }
 
-/**
- * Alcance de visibilidad que se envía a la BD:
- * null = administrador (todas las tareas); un id = agente (asignadas a él o creadas por él).
- */
-export type ViewerScope = number | null;
-
 export interface ListTasksFilter {
   status?: string | undefined;
+  /** Filtro opcional por área (dentro de lo que el usuario puede ver). */
+  areaId?: number | undefined;
   page: number;
   pageSize: number;
-  viewerId?: ViewerScope;
+  /** Quién consulta: la BD limita el resultado según sus permisos. */
+  viewerId: number;
 }
 
 export interface TaskPage {
@@ -51,6 +52,8 @@ export interface TaskData {
 
 export interface CreateTaskInput extends TaskData {
   assignedTo: number | null;
+  /** null = el área de quien crea (o sin área si puede ver todas). */
+  areaId: number | null;
   createdBy: number;
 }
 
@@ -58,15 +61,13 @@ export interface UpdateTaskInput extends TaskData {
   taskId: number;
   /** undefined = conservar el responsable actual. */
   assignedTo?: number | null;
-  actorId: ViewerScope;
-  /** Quién hace el cambio (queda en el historial de responsables). */
-  changedBy: number;
+  /** undefined = conservar el área actual. */
+  areaId?: number | null;
+  /** Quién edita (permisos y historial de responsables). */
+  actorId: number;
 }
 
-interface Person {
-  id: number;
-  name: string;
-}
+type Person = NamedRef;
 
 interface StatusRef {
   code: string;
@@ -84,7 +85,6 @@ export interface AddTaskNoteInput {
   taskId: number;
   body: string;
   createdBy: number;
-  viewerId: ViewerScope;
 }
 
 interface TimelineBase {
@@ -104,7 +104,6 @@ export interface ChangeTaskStatusInput {
   taskId: number;
   status: string;
   changedBy: number;
-  viewerId?: ViewerScope;
 }
 
 export interface StatusCount {
@@ -126,13 +125,19 @@ export interface TaskStats extends Omit<TaskStatsSnapshot, 'byStatus'> {
   byStatus: (StatusCount & { percentage: number })[];
 }
 
+export interface TaskStatsFilter {
+  today: string | null;
+  areaId?: number | undefined;
+  viewerId: number;
+}
+
 export interface TaskRepository {
   list(filter: ListTasksFilter): Promise<TaskPage>;
   create(input: CreateTaskInput): Promise<Task>;
   update(input: UpdateTaskInput): Promise<Task>;
   changeStatus(input: ChangeTaskStatusInput): Promise<Task>;
   listStatuses(): Promise<TaskStatus[]>;
-  stats(today: string | null, viewerId?: ViewerScope): Promise<TaskStatsSnapshot>;
+  stats(filter: TaskStatsFilter): Promise<TaskStatsSnapshot>;
   addNote(input: AddTaskNoteInput): Promise<TaskNote>;
-  timeline(taskId: number, viewerId: ViewerScope): Promise<TimelineEvent[]>;
+  timeline(taskId: number, viewerId: number): Promise<TimelineEvent[]>;
 }

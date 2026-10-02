@@ -1,5 +1,6 @@
 import { ForbiddenError } from '../../core/errors.js';
 import { toPaginated, type Paginated } from '../../core/pagination.js';
+import { can } from '../access/access.types.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import type {
   ListTasksFilter,
@@ -10,19 +11,18 @@ import type {
   TaskRepository,
   TaskStats,
   TaskStatus,
-  ViewerScope,
 } from './task.types.js';
 
-type TaskDataWithAssignee = TaskData & { assignedTo?: number | null | undefined };
-
-/** Un administrador ve todo (null); un agente, solo lo asignado a él o creado por él. */
-export const scopeOf = (viewer: AuthUser): ViewerScope =>
-  viewer.role === 'ADMIN' ? null : viewer.id;
+type TaskChanges = TaskData & {
+  assignedTo?: number | null | undefined;
+  areaId?: number | null | undefined;
+};
 
 /**
- * Casos de uso de tareas. Las reglas de integridad y de visibilidad viven también en
- * los Stored Procedures (defensa en profundidad); aquí se decide el alcance de cada
- * rol y se arma la respuesta.
+ * Casos de uso de tareas. Qué ve y qué puede hacer cada persona depende de los permisos
+ * de su rol y de su área. Esas reglas se aplican aquí (respuesta temprana y clara) y
+ * también en los Stored Procedures, que reciben siempre quién hace la operación
+ * (defensa en profundidad).
  */
 export class TaskService {
   constructor(private readonly tasks: TaskRepository) {}
@@ -31,57 +31,56 @@ export class TaskService {
     filter: Omit<ListTasksFilter, 'viewerId'>,
     viewer: AuthUser,
   ): Promise<Paginated<Task>> {
-    const { tasks, total } = await this.tasks.list({ ...filter, viewerId: scopeOf(viewer) });
+    const { tasks, total } = await this.tasks.list({ ...filter, viewerId: viewer.id });
     return toPaginated(tasks, total, filter.page, filter.pageSize);
   }
 
-  /** Un administrador asigna a quien quiera; la tarea que crea un agente queda asignada a él. */
-  async create({ assignedTo, ...fields }: TaskDataWithAssignee, viewer: AuthUser): Promise<Task> {
-    const isAdmin = viewer.role === 'ADMIN';
-    if (!isAdmin && assignedTo !== undefined && assignedTo !== viewer.id) {
-      throw new ForbiddenError('Solo un administrador puede asignar tareas a otras personas.');
+  /** Sin TASKS_ASSIGN, la tarea queda asignada a quien la crea. */
+  async create({ assignedTo, areaId, ...fields }: TaskChanges, viewer: AuthUser): Promise<Task> {
+    const canAssign = can(viewer, 'TASKS_ASSIGN');
+    if (!canAssign && assignedTo !== undefined && assignedTo !== viewer.id) {
+      throw new ForbiddenError('No tienes permiso para asignar tareas a otras personas.');
     }
     return this.tasks.create({
       ...fields,
-      assignedTo: isAdmin ? (assignedTo ?? null) : viewer.id,
+      assignedTo: canAssign ? (assignedTo ?? null) : viewer.id,
+      areaId: areaId ?? null,
       createdBy: viewer.id,
     });
   }
 
-  /** Un administrador edita cualquier tarea y la reasigna; un agente, solo las que creó. */
+  /** Responsable y área solo cambian si vienen en la petición y hay permiso para ello. */
   async update(
     taskId: number,
-    { assignedTo, ...fields }: TaskDataWithAssignee,
+    { assignedTo, areaId, ...fields }: TaskChanges,
     viewer: AuthUser,
   ): Promise<Task> {
-    if (viewer.role !== 'ADMIN' && assignedTo !== undefined) {
-      throw new ForbiddenError('Solo un administrador puede cambiar el responsable.');
+    if (assignedTo !== undefined && !can(viewer, 'TASKS_ASSIGN')) {
+      throw new ForbiddenError('No tienes permiso para cambiar el responsable.');
+    }
+    if (areaId !== undefined && !can(viewer, 'TASKS_VIEW_ALL')) {
+      throw new ForbiddenError('No tienes permiso para mover tareas entre áreas.');
     }
     return this.tasks.update({
       ...fields,
       taskId,
       ...(assignedTo !== undefined && { assignedTo }),
-      actorId: scopeOf(viewer),
-      changedBy: viewer.id,
+      ...(areaId !== undefined && { areaId }),
+      actorId: viewer.id,
     });
   }
 
   /** Cualquier persona que pueda ver la tarea puede registrar un avance. */
   addNote(taskId: number, body: string, viewer: AuthUser): Promise<TaskNote> {
-    return this.tasks.addNote({ taskId, body, createdBy: viewer.id, viewerId: scopeOf(viewer) });
+    return this.tasks.addNote({ taskId, body, createdBy: viewer.id });
   }
 
   timeline(taskId: number, viewer: AuthUser): Promise<TimelineEvent[]> {
-    return this.tasks.timeline(taskId, scopeOf(viewer));
+    return this.tasks.timeline(taskId, viewer.id);
   }
 
   changeStatus(taskId: number, status: string, viewer: AuthUser): Promise<Task> {
-    return this.tasks.changeStatus({
-      taskId,
-      status,
-      changedBy: viewer.id,
-      viewerId: scopeOf(viewer),
-    });
+    return this.tasks.changeStatus({ taskId, status, changedBy: viewer.id });
   }
 
   listStatuses(): Promise<TaskStatus[]> {
@@ -89,8 +88,11 @@ export class TaskService {
   }
 
   /** Indicadores del panel (dentro del alcance del usuario) con su porcentaje sobre el total. */
-  async stats(today: string | null, viewer: AuthUser): Promise<TaskStats> {
-    const snapshot = await this.tasks.stats(today, scopeOf(viewer));
+  async stats(
+    { today, areaId }: { today: string | null; areaId?: number | undefined },
+    viewer: AuthUser,
+  ): Promise<TaskStats> {
+    const snapshot = await this.tasks.stats({ today, areaId, viewerId: viewer.id });
     const percentageOf = (count: number) =>
       snapshot.total === 0 ? 0 : Math.round((count / snapshot.total) * 100);
     return {

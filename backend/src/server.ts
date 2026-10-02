@@ -53,6 +53,7 @@ async function main(): Promise<void> {
   await seedInitialData(config.seed, {
     users: container.userRepository,
     tasks: container.taskRepository,
+    access: container.accessService,
     passwordHasher: container.passwordHasher,
     logger,
   });
