@@ -43,7 +43,9 @@ export class ProcedureExecutor implements ProcedureRunner {
 
     try {
       const result = await request.execute<TRow>(procedure);
-      return { rows: result.recordset, output: result.output };
+      // Un SP que termina sin SELECT (p. ej. con RETURN) no trae recordset: se normaliza a [].
+      const rows = result.recordset as TRow[] | undefined; // los tipos de mssql no lo reflejan
+      return { rows: rows ?? [], output: result.output };
     } catch (error) {
       throw translateSqlError(error);
     }
