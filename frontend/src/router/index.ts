@@ -24,6 +24,13 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: 'Iniciar sesión', guestOnly: true },
   },
   {
+    // Enlace del correo de "¿Olvidaste tu contraseña?" (público: no requiere sesión).
+    path: '/reset-password',
+    name: 'reset-password',
+    component: () => import('@/modules/auth/views/ResetPasswordView.vue'),
+    meta: { title: 'Crear contraseña nueva' },
+  },
+  {
     path: '/',
     component: () => import('@/shared/layouts/AppLayout.vue'),
     meta: { requiresAuth: true },

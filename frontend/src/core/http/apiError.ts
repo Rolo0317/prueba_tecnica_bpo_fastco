@@ -10,6 +10,8 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly details: ApiErrorDetail[] = [],
+    /** Datos numéricos extra (p. ej. attemptsRemaining, retryAfterSeconds). */
+    readonly meta: Readonly<Record<string, number>> = {},
   ) {
     super(message);
     this.name = 'ApiError';

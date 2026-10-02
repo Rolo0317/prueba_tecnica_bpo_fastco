@@ -16,6 +16,11 @@ export interface Visual {
   color: string;
 }
 
+export interface PriorityVisual extends Visual {
+  /** Qué significa en la práctica (se muestra al elegirla). */
+  hint: string;
+}
+
 /** Cada estado se distingue por ícono + texto, nunca solo por color (accesibilidad). */
 const STATUS_VISUALS: Readonly<Record<string, Omit<Visual, 'label'>>> = {
   PENDING: { icon: mdiClockOutline, color: 'warning' },
@@ -30,10 +35,26 @@ export function statusVisual(code: string, name: string): Visual {
   return { label: name, ...(STATUS_VISUALS[code] ?? UNKNOWN_STATUS) };
 }
 
-export const PRIORITY_VISUALS: Readonly<Record<Priority, Visual>> = {
-  HIGH: { label: 'Alta', icon: mdiChevronDoubleUp, color: 'error' },
-  MEDIUM: { label: 'Media', icon: mdiEqual, color: 'secondary' },
-  LOW: { label: 'Baja', icon: mdiChevronDown, color: 'neutral' },
+/** Semáforo de prioridad: rojo (alta), ámbar (media), verde (baja). */
+export const PRIORITY_VISUALS: Readonly<Record<Priority, PriorityVisual>> = {
+  HIGH: {
+    label: 'Alta',
+    icon: mdiChevronDoubleUp,
+    color: 'error',
+    hint: 'Alta: afecta al cliente o a la operación; atender hoy.',
+  },
+  MEDIUM: {
+    label: 'Media',
+    icon: mdiEqual,
+    color: 'warning',
+    hint: 'Media: importante, sin impacto inmediato; atender en los próximos días.',
+  },
+  LOW: {
+    label: 'Baja',
+    icon: mdiChevronDown,
+    color: 'success',
+    hint: 'Baja: mejora o pendiente menor; atender cuando haya capacidad.',
+  },
 };
 
 export const PRIORITY_OPTIONS = (Object.keys(PRIORITY_VISUALS) as Priority[]).map((value) => ({

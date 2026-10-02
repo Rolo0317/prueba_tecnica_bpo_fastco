@@ -11,6 +11,7 @@ import ConfirmDialog from '@/shared/components/ConfirmDialog.vue';
 import { useNotifier } from '@/shared/composables/useNotifier';
 import ResetPasswordDialog from '../components/ResetPasswordDialog.vue';
 import UserFormDialog from '../components/UserFormDialog.vue';
+import UserFiltersBar from '../components/UserFiltersBar.vue';
 import UsersTable from '../components/UsersTable.vue';
 import { useUsers } from '../composables/useUsers';
 import type { ManagedUser } from '../types';
@@ -20,6 +21,9 @@ const notifier = useNotifier();
 const {
   users,
   pagination,
+  filters,
+  hasFilters,
+  clearFilters,
   loading,
   error,
   busyUserId,
@@ -142,6 +146,17 @@ function confirmDeactivate(): void {
     </header>
 
     <v-card>
+      <UserFiltersBar
+        v-model:search="filters.search"
+        v-model:role-id="filters.roleId"
+        v-model:area-id="filters.areaId"
+        v-model:status="filters.status"
+        v-model:pending-reset="filters.pendingReset"
+        :roles="roles"
+        :areas="areaCatalog.areas.value"
+        :has-filters="hasFilters"
+        @clear="clearFilters"
+      />
       <v-alert v-if="error" type="error" variant="tonal" class="ma-4" role="alert">
         <div class="alert-body">
           <span>{{ error.message }}</span>
@@ -158,6 +173,7 @@ function confirmDeactivate(): void {
         :loading="loading"
         :busy-user-id="busyUserId"
         :current-user-id="currentUserId"
+        :filtered="hasFilters"
         @update:page="setPage"
         @update:page-size="setPageSize"
         @edit="openForm"

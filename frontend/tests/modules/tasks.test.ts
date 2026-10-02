@@ -24,6 +24,7 @@ function fakeService(overrides: Partial<TaskService> = {}): TaskService {
       .mockResolvedValue(buildTask({ status: { code: 'IN_PROGRESS', name: 'En progreso' } })),
     listStatuses: vi.fn().mockResolvedValue(STATUSES),
     stats: vi.fn().mockResolvedValue(STATS),
+    statsByArea: vi.fn().mockResolvedValue([]),
     timeline: vi.fn().mockResolvedValue([]),
     addNote: vi.fn(),
     ...overrides,
@@ -32,9 +33,20 @@ function fakeService(overrides: Partial<TaskService> = {}): TaskService {
 
 describe('parseFilters', () => {
   it('lee filtros válidos de la URL', () => {
-    expect(parseFilters({ status: 'PENDING', areaId: '4', page: '3', pageSize: '25' })).toEqual({
+    expect(
+      parseFilters({
+        status: 'PENDING',
+        areaId: '4',
+        priority: 'HIGH',
+        q: ' llamada ',
+        page: '3',
+        pageSize: '25',
+      }),
+    ).toEqual({
       status: 'PENDING',
       areaId: 4,
+      search: 'llamada',
+      priority: 'HIGH',
       page: 3,
       pageSize: 25,
     });
@@ -42,10 +54,18 @@ describe('parseFilters', () => {
 
   it('ignora valores manipulados y usa valores por defecto', () => {
     expect(
-      parseFilters({ status: "x'; DROP", areaId: '1 OR 1=1', page: '-4', pageSize: '9999' }),
+      parseFilters({
+        status: "x'; DROP",
+        areaId: '1 OR 1=1',
+        priority: 'URGENTE',
+        page: '-4',
+        pageSize: '9999',
+      }),
     ).toEqual({
       status: null,
       areaId: null,
+      search: null,
+      priority: null,
       page: 1,
       pageSize: 10,
     });
@@ -61,6 +81,8 @@ describe('useTasks', () => {
     expect(service.list).toHaveBeenCalledWith({
       status: null,
       areaId: null,
+      search: null,
+      priority: null,
       page: 1,
       pageSize: 10,
     });
@@ -80,6 +102,8 @@ describe('useTasks', () => {
     expect(service.list).toHaveBeenLastCalledWith({
       status: 'COMPLETED',
       areaId: null,
+      search: null,
+      priority: null,
       page: 1,
       pageSize: 10,
     });

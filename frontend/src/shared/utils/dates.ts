@@ -52,3 +52,14 @@ export function dueState(dueDate: string | null, today: string = todayIso()): Du
   if (dueDate < today) return 'overdue';
   return dueDate === today ? 'today' : null;
 }
+
+/** Duración legible a partir de horas: "menos de 1 h", "5 h", "2 d 3 h". */
+export function formatHours(hours: number | null): string {
+  if (hours === null) return '—';
+  if (hours < 1) return 'menos de 1 h';
+  const total = Math.round(hours);
+  const days = Math.floor(total / 24);
+  const rest = total % 24;
+  if (days === 0) return `${String(total)} h`;
+  return rest === 0 ? `${String(days)} d` : `${String(days)} d ${String(rest)} h`;
+}

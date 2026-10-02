@@ -7,7 +7,7 @@ import { sessionStore } from '../services/sessionStorage';
 import type { AuthUser, Credentials, LoginResponse, Session } from '../types';
 
 export function createAuthStore(
-  service: AuthService = authService,
+  service: Pick<AuthService, 'login'> = authService,
   account: Pick<AccountService, 'me'> = accountService,
 ) {
   return defineStore('auth', () => {

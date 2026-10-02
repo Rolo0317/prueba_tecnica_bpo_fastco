@@ -72,10 +72,22 @@ export interface TaskStats {
   byStatus: StatusStat[];
 }
 
+/** Indicadores de gestión por área (null = tareas sin área). */
+export interface AreaPerformance {
+  area: NamedRef | null;
+  open: number;
+  overdue: number;
+  closed: number;
+  avgResolutionHours: number | null;
+}
+
 export interface TaskFilters {
   status: string | null;
   /** Filtro por área (null = todas las visibles). */
   areaId: number | null;
+  /** Texto contenido en el título (null = sin búsqueda). */
+  search: string | null;
+  priority: Priority | null;
   page: number;
   pageSize: number;
 }

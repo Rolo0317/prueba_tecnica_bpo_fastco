@@ -1,12 +1,27 @@
 <script setup lang="ts">
-import { mdiAccountOutline } from '@mdi/js';
+import { mdiAccountOutline, mdiLockClock } from '@mdi/js';
+import { ref } from 'vue';
 import BrandIntro from '@/shared/components/BrandIntro.vue';
 import BrandMark from '@/shared/components/BrandMark.vue';
 import PasswordField from '@/shared/components/PasswordField.vue';
 import ThemeToggle from '@/shared/components/ThemeToggle.vue';
-import { loginRules, useLoginForm } from '../composables/useLoginForm';
+import CaptchaCheckbox from '../components/CaptchaCheckbox.vue';
+import ForgotPasswordDialog from '../components/ForgotPasswordDialog.vue';
+import { formatCountdown, loginRules, useLoginForm } from '../composables/useLoginForm';
 
-const { credentials, sessionExpired, loading, error, submit } = useLoginForm();
+const {
+  credentials,
+  sessionExpired,
+  loading,
+  error,
+  errorMessage,
+  captcha,
+  captchaMissing,
+  locked,
+  lockedSeconds,
+  submit,
+} = useLoginForm();
+const forgotOpen = ref(false);
 </script>
 
 <template>
@@ -38,14 +53,28 @@ const { credentials, sessionExpired, loading, error, submit } = useLoginForm();
           permisos). Inicia sesión de nuevo para continuar.
         </v-alert>
         <v-alert
-          v-if="error"
+          v-if="locked"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="mb-4"
+          :icon="mdiLockClock"
+          role="alert"
+        >
+          Demasiados intentos fallidos. Por seguridad, el acceso está bloqueado. Podrás intentar de
+          nuevo en
+          <strong class="tabular">{{ formatCountdown(lockedSeconds) }}</strong>
+          .
+        </v-alert>
+        <v-alert
+          v-else-if="error"
           type="error"
           variant="tonal"
           density="compact"
           class="mb-4"
           role="alert"
         >
-          {{ error.message }}
+          {{ errorMessage }}
         </v-alert>
 
         <v-form class="login-form" validate-on="submit" @submit.prevent="submit">
@@ -62,10 +91,30 @@ const { credentials, sessionExpired, loading, error, submit } = useLoginForm();
             label="Contraseña"
             :rules="loginRules.password"
           />
-          <v-btn type="submit" color="primary" size="large" block :loading="loading">
-            Ingresar
+          <div class="login-forgot">
+            <v-btn variant="text" density="comfortable" color="primary" @click="forgotOpen = true">
+              ¿Olvidaste tu contraseña?
+            </v-btn>
+          </div>
+          <CaptchaCheckbox
+            :status="captcha.status.value"
+            :error-message="captcha.errorMessage.value"
+            :invalid="captchaMissing && !captcha.ready.value"
+            @verify="captcha.verify()"
+          />
+          <v-btn
+            type="submit"
+            color="primary"
+            size="large"
+            block
+            class="mt-2"
+            :loading="loading"
+            :disabled="locked"
+          >
+            {{ locked ? `Bloqueado (${formatCountdown(lockedSeconds)})` : 'Ingresar' }}
           </v-btn>
         </v-form>
+        <ForgotPasswordDialog v-model="forgotOpen" :initial-username="credentials.username" />
       </v-card>
     </section>
   </div>
@@ -119,6 +168,11 @@ const { credentials, sessionExpired, loading, error, submit } = useLoginForm();
 .login-form {
   display: grid;
   gap: 8px;
+}
+.login-forgot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -12px;
 }
 
 @media (max-width: 959px) {

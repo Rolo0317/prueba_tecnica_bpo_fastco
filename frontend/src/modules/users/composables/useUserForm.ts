@@ -11,6 +11,7 @@ export type AreaChoice = number | string | null;
 interface UserFormState {
   username: string;
   fullName: string;
+  email: string;
   roleId: number | null;
   area: AreaChoice;
   password: string;
@@ -20,6 +21,7 @@ interface UserFormState {
 const initialState = (user: ManagedUser | null, defaultRoleId: number | null): UserFormState => ({
   username: user?.username ?? '',
   fullName: user?.fullName ?? '',
+  email: user?.email ?? '',
   roleId: user?.role.id ?? defaultRoleId,
   area: user?.area?.id ?? null,
   password: '',
@@ -66,6 +68,12 @@ export function useUserForm(
         /^[a-zA-Z0-9._-]+$/.test(value.trim()) ||
         'Solo letras sin tilde, números, punto, guion y guion bajo.',
     ],
+    email: [
+      (value: string) =>
+        value.trim() === '' ||
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()) ||
+        'El correo no tiene un formato válido.',
+    ],
     fullName: [
       (value: string) => value.trim().length > 0 || 'El nombre es obligatorio.',
       (value: string) => value.trim().length <= USER_LIMITS.fullName || 'Máximo 100 caracteres.',
@@ -78,6 +86,7 @@ export function useUserForm(
   const { loading, fieldErrors, generalError, clearErrors, submit } = useFormSubmit(async () => {
     const data = {
       fullName: form.fullName.trim(),
+      email: form.email.trim().toLowerCase() || null,
       roleId: form.roleId ?? 0,
       areaId: await resolveAreaId(form.area, options.areas.value, actions.createArea),
     };

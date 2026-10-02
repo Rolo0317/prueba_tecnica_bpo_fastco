@@ -1,12 +1,20 @@
 import { http, type ApiClient } from '@/core/http';
 import type { Paginated } from '@/shared/types/pagination';
 import type { Assignee } from '@/modules/tasks/types';
-import type { ManagedUser, NewUserPayload, UpdateUserPayload } from '../types';
+import type { ManagedUser, NewUserPayload, UpdateUserPayload, UserFilters } from '../types';
 
 export function createUserService(client: ApiClient) {
   return {
-    list: (page: number, pageSize: number) =>
-      client.get<Paginated<ManagedUser>>('/users', { page, pageSize }),
+    list: (page: number, pageSize: number, filters?: Partial<UserFilters>) =>
+      client.get<Paginated<ManagedUser>>('/users', {
+        page,
+        pageSize,
+        search: filters?.search?.trim(),
+        roleId: filters?.roleId,
+        areaId: filters?.areaId,
+        status: filters?.status,
+        pendingReset: filters?.pendingReset ? 'true' : undefined,
+      }),
     create: (payload: NewUserPayload) => client.post<ManagedUser>('/users', payload),
     update: (id: number, payload: UpdateUserPayload) =>
       client.patch<ManagedUser>(`/users/${String(id)}`, payload),

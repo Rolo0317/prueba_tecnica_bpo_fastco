@@ -15,11 +15,13 @@ const buildUser = (overrides: Partial<ManagedUser> = {}): ManagedUser => ({
   id: 2,
   username: 'agente',
   fullName: 'Agente Uno',
+  email: null,
   role: { id: 3, name: 'Colaborador' },
   area: { id: 1, name: 'Operaciones' },
   isActive: true,
   createdAt: '2026-10-01T10:00:00.000Z',
   passwordChangedAt: null,
+  passwordResetRequestedAt: null,
   ...overrides,
 });
 
@@ -86,7 +88,7 @@ describe('useUsers', () => {
     const { result } = await withSetup(() => useUsers(service));
     await flushPromises();
 
-    expect(service.list).toHaveBeenCalledWith(1, 10);
+    expect(service.list).toHaveBeenCalledWith(1, 10, expect.objectContaining({ search: '' }));
     expect(result.users.value).toHaveLength(1);
   });
 
@@ -162,6 +164,7 @@ describe('useUserForm', () => {
     expect(actions.create).toHaveBeenCalledWith({
       username: 'nuevo',
       fullName: 'Nuevo',
+      email: null,
       roleId: 1,
       areaId: 7,
       password: 'Valida-2026x',
@@ -173,6 +176,7 @@ describe('useUserForm', () => {
     await userForm.submit();
     expect(actions.update).toHaveBeenCalledWith(2, {
       fullName: 'Agente Uno',
+      email: null,
       roleId: 3,
       areaId: 1,
     });

@@ -3,6 +3,7 @@ import {
   mdiAccountCheckOutline,
   mdiAccountOffOutline,
   mdiDeleteOutline,
+  mdiLockAlertOutline,
   mdiLockReset,
   mdiPencilOutline,
 } from '@mdi/js';
@@ -20,6 +21,8 @@ defineProps<{
   loading: boolean;
   busyUserId: number | null;
   currentUserId: number | null;
+  /** Hay búsqueda o filtros activos (cambia el mensaje cuando no hay resultados). */
+  filtered?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -63,6 +66,16 @@ const pageSizeOptions = PAGE_SIZE_OPTIONS.map((value) => ({ value, title: String
       <v-skeleton-loader type="table-row@4" />
     </template>
 
+    <template #no-data>
+      <p class="pa-6 text-medium-emphasis">
+        {{
+          filtered
+            ? 'Ningún usuario coincide con la búsqueda o los filtros.'
+            : 'Aún no hay usuarios.'
+        }}
+      </p>
+    </template>
+
     <template #[`item.fullName`]="{ item }">
       <div class="user-cell">
         <v-avatar :color="item.isActive ? 'secondary' : 'neutral'" size="36" aria-hidden="true">
@@ -73,7 +86,21 @@ const pageSizeOptions = PAGE_SIZE_OPTIONS.map((value) => ({ value, title: String
             {{ item.fullName }}
             <span v-if="item.id === currentUserId" class="text-medium-emphasis">(tú)</span>
           </span>
-          <span class="text-medium-emphasis">@{{ item.username }}</span>
+          <span class="text-medium-emphasis">
+            @{{ item.username }}
+            <template v-if="item.email">· {{ item.email }}</template>
+          </span>
+          <v-chip
+            v-if="item.passwordResetRequestedAt"
+            :prepend-icon="mdiLockAlertOutline"
+            color="warning"
+            size="x-small"
+            variant="tonal"
+            label
+            class="user-cell__reset"
+          >
+            Pidió restablecer su contraseña · {{ formatDateTime(item.passwordResetRequestedAt) }}
+          </v-chip>
         </div>
       </div>
     </template>
@@ -152,6 +179,10 @@ const pageSizeOptions = PAGE_SIZE_OPTIONS.map((value) => ({ value, title: String
   align-items: center;
   gap: 12px;
   padding-block: 8px;
+}
+.user-cell__reset {
+  justify-self: start;
+  margin-top: 4px;
 }
 .user-cell__text {
   display: grid;

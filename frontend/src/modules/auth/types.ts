@@ -13,6 +13,8 @@ export interface AuthUser {
 export interface Credentials {
   username: string;
   password: string;
+  /** Solución del captcha "No soy un robot" (undefined si está desactivado). */
+  captcha?: string | undefined;
 }
 
 export interface LoginResponse {

@@ -19,7 +19,12 @@ export interface ApiClientOptions {
 }
 
 interface ErrorBody {
-  error?: { code?: string; message?: string; details?: ApiErrorDetail[] };
+  error?: {
+    code?: string;
+    message?: string;
+    details?: ApiErrorDetail[];
+    meta?: Record<string, number>;
+  };
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -51,6 +56,7 @@ async function toHttpError(response: Response): Promise<ApiError> {
     error?.code ?? `HTTP_${String(response.status)}`,
     error?.message ?? fallbackMessage(response.status),
     error?.details ?? [],
+    error?.meta ?? {},
   );
 }
 

@@ -3,7 +3,7 @@ import { mdiAccountOutline, mdiOfficeBuildingOutline } from '@mdi/js';
 import { computed, toRef, watch } from 'vue';
 import FormDialog from '@/shared/components/FormDialog.vue';
 import { todayIso } from '@/shared/utils/dates';
-import { PRIORITY_OPTIONS, TASK_LIMITS } from '../constants';
+import { PRIORITY_OPTIONS, PRIORITY_VISUALS, TASK_LIMITS } from '../constants';
 import type { Area, NamedRef } from '@/modules/access/types';
 import {
   taskFormRules,
@@ -37,6 +37,8 @@ const assigneeItems = computed(() =>
     subtitle: user.area ? `@${user.username} · ${user.area.name}` : `@${user.username}`,
   })),
 );
+
+const selectedPriority = computed(() => PRIORITY_VISUALS[form.priority]);
 
 const areaItems = computed(() => props.areas.map((area) => ({ value: area.id, title: area.name })));
 
@@ -101,23 +103,24 @@ async function onSubmit(): Promise<void> {
 
     <fieldset class="choice-field">
       <legend class="choice-field__legend">Prioridad</legend>
-      <v-btn-toggle
-        v-model="form.priority"
-        mandatory
-        divided
-        variant="outlined"
-        color="primary"
-        density="comfortable"
-      >
+      <!-- Semáforo: rojo = alta, ámbar = media, verde = baja (con ícono y texto, no solo color). -->
+      <div class="semaphore" role="radiogroup" aria-label="Prioridad">
         <v-btn
           v-for="option in PRIORITY_OPTIONS"
           :key="option.value"
-          :value="option.value"
+          role="radio"
+          :aria-checked="form.priority === option.value"
+          :color="option.color"
+          :variant="form.priority === option.value ? 'flat' : 'outlined'"
           :prepend-icon="option.icon"
+          class="semaphore__option"
+          @click="form.priority = option.value"
         >
+          <span class="semaphore__light" :class="`bg-${option.color}`" aria-hidden="true" />
           {{ option.label }}
         </v-btn>
-      </v-btn-toggle>
+      </div>
+      <p class="semaphore__hint text-medium-emphasis">{{ selectedPriority.hint }}</p>
     </fieldset>
 
     <v-text-field
@@ -171,6 +174,27 @@ async function onSubmit(): Promise<void> {
 </template>
 
 <style scoped>
+.semaphore {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.semaphore__option {
+  height: 44px !important;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.semaphore__light {
+  width: 12px;
+  height: 12px;
+  margin-inline-end: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgb(var(--v-theme-surface));
+}
+.semaphore__hint {
+  font-size: 0.75rem;
+  margin-top: 6px;
+}
 .assign-note {
   font-size: 0.8125rem;
 }

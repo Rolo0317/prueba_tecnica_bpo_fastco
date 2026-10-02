@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { mdiPlus, mdiRefresh } from '@mdi/js';
-import { mdiOfficeBuildingOutline } from '@mdi/js';
-import { computed, onMounted, ref } from 'vue';
+import { mdiFilterRemoveOutline, mdiMagnify, mdiOfficeBuildingOutline } from '@mdi/js';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useDebounced } from '@/shared/composables/useDebounced';
+import { PRIORITY_OPTIONS } from '../constants';
 import { toApiError } from '@/core/http';
 import { useAreas } from '@/modules/access/composables/useAreas';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 import { useNotifier } from '@/shared/composables/useNotifier';
+import AreaPerformancePanel from '../components/AreaPerformancePanel.vue';
 import TaskFollowUpDrawer from '../components/TaskFollowUpDrawer.vue';
 import TaskFormDialog from '../components/TaskFormDialog.vue';
 import TaskStatsPanel from '../components/TaskStatsPanel.vue';
 import TaskStatusFilter from '../components/TaskStatusFilter.vue';
 import TaskTable from '../components/TaskTable.vue';
+import { PERFORMANCE_DAYS, useAreaPerformance } from '../composables/useAreaPerformance';
 import { useAssignees } from '../composables/useAssignees';
 import { useTaskStats } from '../composables/useTaskStats';
 import { useTaskStatuses } from '../composables/useTaskStatuses';
@@ -22,6 +26,7 @@ const notifier = useNotifier();
 const statusCatalog = useTaskStatuses();
 const assigneeCatalog = useAssignees();
 const areaCatalog = useAreas();
+const performance = useAreaPerformance();
 const {
   tasks,
   pagination,
@@ -32,6 +37,8 @@ const {
   reload,
   setStatus,
   setArea,
+  setSearch,
+  setPriority,
   clearFilters: clearTaskFilters,
   setPage,
   setPageSize,
@@ -73,8 +80,33 @@ const subtitle = computed(() => {
   return 'Tus tareas: las que tienes asignadas y las que creaste.';
 });
 
+/** El desempeño por área es para quien supervisa (ve todas las áreas o la suya). */
+const showPerformance = computed(() => auth.can('TASKS_VIEW_ALL') || auth.can('TASKS_VIEW_AREA'));
+
 /** El filtro por área tiene sentido para quien ve más de un área. */
 const showAreaFilter = computed(() => auth.can('TASKS_VIEW_ALL'));
+
+/** Búsqueda por título: se aplica cuando se deja de escribir (una petición, no una por tecla). */
+const searchText = ref(filters.value.search ?? '');
+const debouncedSearch = useDebounced(searchText);
+watch(debouncedSearch, (value) => {
+  if ((value.trim() || null) !== filters.value.search) void setSearch(value);
+});
+watch(
+  () => filters.value.search,
+  (value) => {
+    if ((searchText.value.trim() || null) !== value) searchText.value = value ?? '';
+  },
+);
+
+const priorityItems = PRIORITY_OPTIONS.map((option) => ({ ...option, title: option.label }));
+const hasFilters = computed(
+  () =>
+    filters.value.status !== null ||
+    filters.value.areaId !== null ||
+    filters.value.priority !== null ||
+    filters.value.search !== null,
+);
 const areaFilterItems = computed(() =>
   areaCatalog.areas.value.map((area) => ({ value: area.id, title: area.name })),
 );
@@ -83,6 +115,7 @@ onMounted(() => {
   void statusCatalog.load();
   void taskStats.load();
   void areaCatalog.load();
+  if (showPerformance.value) void performance.load();
   if (formAbilities.value.assign) void assigneeCatalog.load();
 });
 
@@ -107,6 +140,11 @@ function onNoteAdded(task: Task): void {
 }
 
 /** Listado e indicadores se actualizan juntos para que nunca muestren datos distintos. */
+function refreshIndicators(): void {
+  void taskStats.load();
+  if (showPerformance.value) void performance.load();
+}
+
 function clearFilters(): void {
   void clearTaskFilters().then(() => taskStats.load());
 }
@@ -114,20 +152,21 @@ function clearFilters(): void {
 function refreshAll(): void {
   void reload();
   void taskStats.load();
+  if (showPerformance.value) void performance.load();
 }
 
 function onSaved(task: Task, created: boolean): void {
   notifier.success(
     created ? `Tarea "${task.title}" creada.` : `Cambios en "${task.title}" guardados.`,
   );
-  void taskStats.load();
+  refreshIndicators();
 }
 
 async function onChangeStatus(task: Task, status: string): Promise<void> {
   try {
     const updated = await changeStatus(task, status);
     notifier.success(`"${updated.title}" pasó a ${updated.status.name}.`);
-    void taskStats.load();
+    refreshIndicators();
   } catch (caught) {
     notifier.error(toApiError(caught).message);
     // Puede que otra persona la haya cambiado antes: se recarga para mostrar el estado real.
@@ -163,6 +202,18 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
       @retry="taskStats.load()"
     />
 
+    <AreaPerformancePanel
+      v-if="showPerformance"
+      :rows="performance.rows.value"
+      :days="PERFORMANCE_DAYS"
+      :loading="performance.loading.value"
+      :error-message="performance.error.value?.message ?? null"
+      :selectable="showAreaFilter"
+      :active-area-id="filters.areaId"
+      @select="onAreaFilter"
+      @retry="performance.load()"
+    />
+
     <v-card rounded="lg" class="tasks-card">
       <div class="toolbar">
         <TaskStatusFilter
@@ -170,6 +221,53 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
           :model-value="filters.status"
           @update:model-value="setStatus"
         />
+        <v-btn
+          :icon="mdiRefresh"
+          variant="text"
+          aria-label="Actualizar listado e indicadores"
+          :loading="loading"
+          @click="refreshAll()"
+        />
+      </div>
+      <div class="toolbar toolbar--filters" role="search" aria-label="Buscar y filtrar tareas">
+        <v-text-field
+          v-model="searchText"
+          :prepend-inner-icon="mdiMagnify"
+          label="Buscar por título"
+          density="compact"
+          variant="outlined"
+          hide-details
+          clearable
+          class="search-filter"
+          @click:clear="searchText = ''"
+        />
+        <v-select
+          :model-value="filters.priority"
+          :items="priorityItems"
+          item-value="value"
+          item-title="title"
+          label="Prioridad"
+          placeholder="Todas"
+          persistent-placeholder
+          density="compact"
+          variant="outlined"
+          hide-details
+          clearable
+          class="priority-filter"
+          @update:model-value="setPriority"
+        >
+          <template #item="{ props: itemProps, item }">
+            <v-list-item v-bind="itemProps">
+              <template #prepend>
+                <span class="priority-dot" :class="`bg-${item.color}`" aria-hidden="true" />
+              </template>
+            </v-list-item>
+          </template>
+          <template #selection="{ item }">
+            <span class="priority-dot" :class="`bg-${item.color}`" aria-hidden="true" />
+            {{ item.title }}
+          </template>
+        </v-select>
         <v-select
           v-if="showAreaFilter"
           :model-value="filters.areaId"
@@ -188,12 +286,14 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
           @update:model-value="onAreaFilter"
         />
         <v-btn
-          :icon="mdiRefresh"
+          v-if="hasFilters"
+          :prepend-icon="mdiFilterRemoveOutline"
           variant="text"
-          aria-label="Actualizar listado e indicadores"
-          :loading="loading"
-          @click="refreshAll()"
-        />
+          size="small"
+          @click="clearFilters"
+        >
+          Limpiar filtros
+        </v-btn>
       </div>
 
       <v-alert v-if="error" type="error" variant="tonal" class="ma-4" role="alert">
@@ -210,7 +310,7 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
         :page="filters.page"
         :page-size="filters.pageSize"
         :loading="loading"
-        :filtered="filters.status !== null || filters.areaId !== null"
+        :filtered="hasFilters"
         :updating-task-id="updatingTaskId"
         :transitions-for="statusCatalog.transitionsFor"
         :can-edit="canEdit"
@@ -271,10 +371,24 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
   padding: 8px 12px;
   border-bottom: 1px solid rgb(var(--v-border-color), var(--v-border-opacity));
 }
+.toolbar--filters {
+  justify-content: flex-start;
+  gap: 12px;
+}
+.search-filter {
+  flex: 2 1 260px;
+}
+.priority-filter,
 .area-filter {
-  flex: 0 1 240px;
-  min-width: 180px;
-  margin-inline-start: auto;
+  flex: 1 1 170px;
+  max-width: 260px;
+}
+.priority-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-inline-end: 8px;
+  border-radius: 50%;
 }
 .alert-body {
   display: flex;

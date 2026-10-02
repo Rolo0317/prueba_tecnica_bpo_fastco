@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { mdiOfficeBuildingOutline, mdiShieldAccountOutline } from '@mdi/js';
+import { mdiEmailOutline, mdiOfficeBuildingOutline, mdiShieldAccountOutline } from '@mdi/js';
 import { computed, toRef, watch } from 'vue';
 import type { Area, Role } from '@/modules/access/types';
 import FormDialog from '@/shared/components/FormDialog.vue';
@@ -106,6 +106,18 @@ async function onSubmit(): Promise<void> {
       :error-messages="fieldErrors.fullName"
       :maxlength="USER_LIMITS.fullName"
       :autofocus="isEdit"
+    />
+    <v-text-field
+      v-model="form.email"
+      label="Correo"
+      type="email"
+      :prepend-inner-icon="mdiEmailOutline"
+      :rules="rules.email"
+      :error-messages="fieldErrors.email"
+      maxlength="254"
+      hint="Opcional. Permite recuperar la contraseña con un enlace desde el login."
+      persistent-hint
+      autocomplete="off"
     />
 
     <v-autocomplete

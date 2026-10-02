@@ -1,21 +1,63 @@
-import { computed, ref, watch } from 'vue';
+import { computed, reactive, ref, toRef, watch } from 'vue';
+import { useDebounced } from '@/shared/composables/useDebounced';
 import { useAsyncState } from '@/shared/composables/useAsyncState';
 import { DEFAULT_PAGE_SIZE, emptyPagination } from '@/shared/types/pagination';
 import { userService, type UserService } from '../services/userService';
-import type { ManagedUser, NewUserPayload, UpdateUserPayload } from '../types';
+import type { ManagedUser, NewUserPayload, UpdateUserPayload, UserFilters } from '../types';
 
-/** ViewModel de la administración de usuarios: listado paginado y acciones sobre cada usuario. */
+export const emptyUserFilters = (): UserFilters => ({
+  search: '',
+  roleId: null,
+  areaId: null,
+  status: null,
+  pendingReset: false,
+});
+
+/**
+ * ViewModel de la administración de usuarios: listado paginado con buscador (nombre,
+ * usuario o correo) y filtros, y acciones sobre cada usuario.
+ */
 export function useUsers(service: UserService = userService) {
   const page = ref(1);
   const pageSize = ref<number>(DEFAULT_PAGE_SIZE);
   const busyUserId = ref<number | null>(null);
+  const filters = reactive<UserFilters>(emptyUserFilters());
+  // El texto se aplica cuando se deja de escribir; los selectores, de inmediato.
+  const search = useDebounced(toRef(filters, 'search'));
 
-  const list = useAsyncState(() => service.list(page.value, pageSize.value));
+  const list = useAsyncState(() =>
+    service.list(page.value, pageSize.value, { ...filters, search: search.value }),
+  );
   const users = computed<ManagedUser[]>(() => list.data.value?.data ?? []);
   const pagination = computed(() => list.data.value?.pagination ?? emptyPagination(pageSize.value));
+  const hasFilters = computed(
+    () =>
+      filters.search.trim() !== '' ||
+      filters.roleId !== null ||
+      filters.areaId !== null ||
+      filters.status !== null ||
+      filters.pendingReset,
+  );
 
   const reload = () => list.execute();
   watch([page, pageSize], reload, { immediate: true });
+  watch(
+    [
+      search,
+      () => filters.roleId,
+      () => filters.areaId,
+      () => filters.status,
+      () => filters.pendingReset,
+    ],
+    () => {
+      if (page.value === 1) void reload();
+      else page.value = 1;
+    },
+  );
+
+  function clearFilters(): void {
+    Object.assign(filters, emptyUserFilters());
+  }
 
   function setPage(value: number): void {
     page.value = value;
@@ -79,6 +121,9 @@ export function useUsers(service: UserService = userService) {
   return {
     users,
     pagination,
+    filters,
+    hasFilters,
+    clearFilters,
     loading: list.loading,
     error: list.error,
     busyUserId,
