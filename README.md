@@ -291,21 +291,30 @@ Formato único de error:
 
 ### Ejemplos con curl
 
+El login de la interfaz pide el captcha "No soy un robot" (lo resuelve el navegador). Para probar la API
+desde la terminal se desactiva solo durante la prueba; la interfaz lo detecta y deja de pedirlo:
+
 ```bash
+AUTH_CAPTCHA=false docker compose up -d backend
+
 BASE=http://localhost:8080/api/v1
 TOKEN=$(curl -s -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"cambiar_Admin123!"}' $BASE/auth/login | sed -E 's/.*"token":"([^"]+)".*/\1/')
 
-# Listar tareas pendientes (página 1, 5 por página)
+# Listar tareas pendientes (filtro por estado y paginación resueltos en SQL)
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/tasks?status=PENDING&page=1&pageSize=5"
 
-# Crear una tarea
-curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"title":"Devolver llamada a cliente","priority":"HIGH","dueDate":"2026-12-15"}' $BASE/tasks
+# Crear una tarea y guardar su id
+ID=$(curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"Devolver llamada a cliente","priority":"HIGH","dueDate":"2026-12-15"}' $BASE/tasks \
+  | sed -E 's/^\{"id":([0-9]+).*/\1/')
 
-# Cambiar su estado (usar el id devuelto)
+# Cambiar su estado (PENDING → IN_PROGRESS; una transición no permitida responde 409)
 curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"status":"IN_PROGRESS"}' $BASE/tasks/1/status
+  -d '{"status":"IN_PROGRESS"}' $BASE/tasks/$ID/status
+
+# Volver a activar el captcha
+docker compose up -d backend
 ```
 
 ---
