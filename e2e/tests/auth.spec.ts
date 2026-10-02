@@ -16,7 +16,7 @@ test.describe('Autenticación', () => {
 
     await login(page, 'contraseña-incorrecta');
 
-    await expect(page.locator('.v-alert')).toHaveText('Usuario o contraseña incorrectos.');
+    await expect(page.locator('.v-alert')).toContainText('Usuario o contraseña incorrectos.');
     await expect(page).toHaveURL(/\/login/);
   });
 

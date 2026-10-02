@@ -45,7 +45,7 @@ test.describe('Administración de usuarios', () => {
     await logout(page);
 
     await loginAs(page, username, 'Inicial-2026x');
-    await expect(page.locator('.v-alert')).toHaveText('Usuario o contraseña incorrectos.');
+    await expect(page.locator('.v-alert')).toContainText('Usuario o contraseña incorrectos.');
   });
 
   test('el administrador restablece la contraseña de un agente', async ({ page }) => {
@@ -88,7 +88,7 @@ test.describe('Cambio de la propia contraseña', () => {
     await logout(page);
 
     await loginAs(page, username, 'Inicial-2026x');
-    await expect(page.locator('.v-alert')).toHaveText('Usuario o contraseña incorrectos.');
+    await expect(page.locator('.v-alert')).toContainText('Usuario o contraseña incorrectos.');
     await loginAs(page, username, 'Propia-2026xyz');
     await expect(page).toHaveURL(/\/tasks/);
   });

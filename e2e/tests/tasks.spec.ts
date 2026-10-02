@@ -12,7 +12,7 @@ test.describe('Gestión de tareas', () => {
 
     await page.getByLabel('Título *').fill(title);
     await page.getByLabel('Descripción').fill('Creada por la prueba end-to-end.');
-    await page.getByRole('button', { name: 'Alta' }).click();
+    await page.getByRole('radio', { name: 'Alta' }).click();
     await page.getByRole('button', { name: 'Crear tarea' }).click();
 
     await expect(page.getByText(`Tarea "${title}" creada.`)).toBeVisible();

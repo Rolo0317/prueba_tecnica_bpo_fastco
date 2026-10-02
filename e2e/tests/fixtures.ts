@@ -1,4 +1,16 @@
-import { expect, test as base, type Page } from '@playwright/test';
+import { expect, test as base, type Locator, type Page } from '@playwright/test';
+
+/** Marca "No soy un robot" (espera a que se resuelva el desafío) y envía el login. */
+export async function passCaptcha(scope: Page | Locator): Promise<void> {
+  const box = scope.getByRole('checkbox', { name: 'No soy un robot' });
+  await box.click();
+  await expect(box).toHaveAttribute('aria-checked', 'true', { timeout: 15_000 });
+}
+
+export async function submitLogin(page: Page): Promise<void> {
+  await passCaptcha(page);
+  await page.getByRole('button', { name: 'Ingresar' }).click();
+}
 
 export const credentials = {
   username: process.env.SEED_ADMIN_USERNAME ?? '',
@@ -8,7 +20,7 @@ export const credentials = {
 export async function login(page: Page, password = credentials.password): Promise<void> {
   await page.getByLabel('Usuario').fill(credentials.username);
   await page.getByLabel('Contraseña', { exact: true }).fill(password);
-  await page.getByRole('button', { name: 'Ingresar' }).click();
+  await submitLogin(page);
 }
 
 /** Página ya autenticada y con la tabla de tareas cargada. */
@@ -30,7 +42,7 @@ export async function loginAs(page: Page, username: string, password: string): P
   await page.goto('/login');
   await page.getByLabel('Usuario').fill(username);
   await page.getByLabel('Contraseña', { exact: true }).fill(password);
-  await page.getByRole('button', { name: 'Ingresar' }).click();
+  await submitLogin(page);
 }
 
 export async function logout(page: Page): Promise<void> {
@@ -46,7 +58,7 @@ export async function createAgent(page: Page, username: string, password: string
   if (page.url().includes('/login')) {
     await page.getByLabel('Usuario').fill(credentials.username);
     await page.getByLabel('Contraseña', { exact: true }).fill(credentials.password);
-    await page.getByRole('button', { name: 'Ingresar' }).click();
+    await submitLogin(page);
   }
   await expect(page).toHaveURL(/\/users/);
   await expect(page.getByRole('heading', { name: 'Usuarios' })).toBeVisible();

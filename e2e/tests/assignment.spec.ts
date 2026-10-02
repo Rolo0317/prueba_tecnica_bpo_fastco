@@ -104,7 +104,7 @@ test.describe('Asignación de tareas y visibilidad por rol', () => {
     await logout(page);
 
     await loginAs(page, agent, PASSWORD);
-    await expect(page.locator('.v-alert')).toHaveText('Usuario o contraseña incorrectos.');
+    await expect(page.locator('.v-alert')).toContainText('Usuario o contraseña incorrectos.');
     expect(credentials.username).not.toBe(agent);
   });
 });
