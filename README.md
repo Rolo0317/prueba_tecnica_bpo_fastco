@@ -50,7 +50,7 @@ capas, con pruebas, sin cambiar ese núcleo (cada decisión está en `docs/adr/`
 | README con pasos en Linux y respuestas | [Sección 1](#1-ejecución-en-linux) y [sección 9](#9-respuestas-a-las-preguntas) |
 
 **Más allá del enunciado:** asignación y seguimiento de tareas, áreas y roles configurables, indicadores,
-captcha y límite de intentos, recuperación de contraseña por correo, datos demo realistas, CI y 311 pruebas.
+captcha y límite de intentos, recuperación de contraseña por correo, datos demo realistas, CI y 313 pruebas.
 
 ## Contenido
 
@@ -421,7 +421,7 @@ docker compose up -d --wait backend
 
 | Suite | Cantidad | Comando |
 |---|---|---|
-| Backend: unitarias + integración HTTP (supertest) | 135 | `cd backend && npm ci && npm test` |
+| Backend: unitarias + integración HTTP (supertest) | 137 | `cd backend && npm ci && npm test` |
 | Frontend: unitarias (composables, cliente HTTP, store, router, componentes) | 108 | `cd frontend && npm ci && npm test` |
 | End-to-end (Playwright, escritorio y móvil) contra `docker compose` | 68 | ver abajo |
 
