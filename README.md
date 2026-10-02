@@ -15,18 +15,46 @@ modo claro/oscuro. Arranca con **datos de un BPO en operación** (17 áreas, 55 
 
 **Stack:** Vue 3 (Composition API) + Vuetify · Node.js + Express + TypeScript · SQL Server 2022 · Docker Compose · Linux
 
-| Login | Tareas e indicadores | Modo oscuro |
+| Login con captcha propio | Indicadores y desempeño por área | Modo oscuro |
 |---|---|---|
 | ![Login](docs/images/login.webp) | ![Tareas e indicadores](docs/images/tareas.webp) | ![Modo oscuro](docs/images/oscuro.webp) |
 
-| Administración de usuarios | Móvil |
+| Filtros y semáforo de prioridad | Usuarios con buscador y filtros | Roles y permisos configurables |
+|---|---|---|
+| ![Filtros](docs/images/filtros.webp) | ![Usuarios](docs/images/usuarios.webp) | ![Roles](docs/images/roles.webp) |
+
+| ¿Olvidaste tu contraseña? | Móvil (supervisora de Calidad) |
 |---|---|
-| ![Usuarios](docs/images/usuarios.webp) | ![Vista móvil](docs/images/movil.webp) |
+| ![Recuperar contraseña](docs/images/recuperar.webp) | ![Vista móvil](docs/images/movil.webp) |
 
 ---
 
+## Requisitos de la prueba → dónde se cumplen
+
+El núcleo pedido está completo y verificado en un clon limpio con un solo comando. Lo demás se agregó por
+capas, con pruebas, sin cambiar ese núcleo (cada decisión está en `docs/adr/`).
+
+| Requisito del enunciado | Dónde |
+|---|---|
+| Tabla de tareas y scripts SQL en el proyecto | `db/scripts/` (numerados e idempotentes) |
+| Stored Procedures con `TRY/CATCH` y transacción donde corresponde | `05_procedures*.sql` (todos con `TRY/CATCH`; transacción en crear, cambiar estado, editar) |
+| Filtro por estado y paginación en SQL | `usp_Tasks_List` (`OFFSET/FETCH` + total `OUTPUT`) |
+| Índice que optimiza una consulta real | `IX_Tasks_StatusId_CreatedAt` — medido en la [respuesta 1](#1-qué-consulta-optimiza-tu-índice-y-cómo-verificarías-que-sql-server-lo-está-usando) |
+| API REST: listar, crear, cambiar estado | `GET /tasks`, `POST /tasks`, `PATCH /tasks/:id/status` |
+| Login con JWT que protege los endpoints | `POST /auth/login` + `authenticate.ts` |
+| Validación, errores centralizados, códigos HTTP | zod en `*.schemas.ts`, `error-handler.ts` (400/401/403/404/409/429) |
+| Consultas parametrizadas y configuración por entorno | `procedure-executor.ts` (solo SPs con parámetros tipados) · `config/env.ts` + `.env.example` |
+| Vue 3 + Vuetify: ver, crear y cambiar estado | `frontend/src/modules/tasks/` |
+| Estados de carga y error, composable propio | `useAsyncState`, `useTasks` y 17 composables más |
+| `docker compose up` levanta todo y crea la base | `docker-compose.yml` + `db-init` ([sección 1](#1-ejecución-en-linux)) |
+| README con pasos en Linux y respuestas | [Sección 1](#1-ejecución-en-linux) y [sección 9](#9-respuestas-a-las-preguntas) |
+
+**Más allá del enunciado:** asignación y seguimiento de tareas, áreas y roles configurables, indicadores,
+captcha y límite de intentos, recuperación de contraseña por correo, datos demo realistas, CI y 309 pruebas.
+
 ## Contenido
 
+0. [Requisitos de la prueba → dónde se cumplen](#requisitos-de-la-prueba--dónde-se-cumplen)
 1. [Ejecución en Linux](#1-ejecución-en-linux)
 2. [Arquitectura](#2-arquitectura)
 3. [Base de datos](#3-base-de-datos)
@@ -90,6 +118,14 @@ Sin esa variable quedan bloqueadas: ninguna contraseña está escrita en el repo
 | `camila.vargas` | Analista de calidad | Todas las áreas (solo consulta) |
 | `claudia.hoyos` | Gestor de talento humano | Administra usuarios, sin poder crear administradores |
 | `kevin.zapata` | Agente · Operaciones | Solo lo asignado a él y lo que crea |
+
+### Demo en 3 minutos
+
+1. Entrar como `admin` → **Usuarios** → *Nuevo usuario* con rol **Supervisor** y un área nueva escrita en el formulario.
+2. Entrar como `laura.gomez` (supervisora de Calidad) → **Nueva tarea** (semáforo de prioridad) y asignarla a alguien de su equipo.
+3. Entrar como `kevin.zapata` (agente) → abrir una tarea asignada → **registrar un avance** y cambiar su estado.
+4. Volver como `sandra.mejia` → ver la **traza** de la tarea y el **desempeño por área**; filtrar por prioridad *Alta*.
+5. Cerrar sesión → **¿Olvidaste tu contraseña?** → el enlace llega a http://localhost:8025.
 
 ### Correo de pruebas (recuperar contraseña)
 
