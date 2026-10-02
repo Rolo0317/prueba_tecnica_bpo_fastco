@@ -3,6 +3,7 @@ import { toPaginated, type Paginated } from '../../core/pagination.js';
 import { can } from '../access/access.types.js';
 import type { AuthUser } from '../auth/auth.types.js';
 import type {
+  AreaPerformance,
   ListTasksFilter,
   TaskNote,
   TimelineEvent,
@@ -85,6 +86,14 @@ export class TaskService {
 
   listStatuses(): Promise<TaskStatus[]> {
     return this.tasks.listStatuses();
+  }
+
+  /** Desempeño por área (abiertas, vencidas, cerradas y tiempo promedio de cierre) en su alcance. */
+  statsByArea(
+    { today, days }: { today: string | null; days: number },
+    viewer: AuthUser,
+  ): Promise<AreaPerformance[]> {
+    return this.tasks.statsByArea({ today, days, viewerId: viewer.id });
   }
 
   /** Indicadores del panel (dentro del alcance del usuario) con su porcentaje sobre el total. */

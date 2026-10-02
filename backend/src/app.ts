@@ -18,6 +18,7 @@ import type { FailedAttemptsLimit } from './middlewares/rate-limit.js';
 import { createAuthRouter } from './modules/auth/auth.routes.js';
 import type { AuthService } from './modules/auth/auth.service.js';
 import type { SessionStore, TokenService } from './modules/auth/auth.types.js';
+import type { ProofOfWorkCaptcha } from './modules/auth/captcha.service.js';
 import { createHealthRouter, type HealthCheck } from './modules/health/health.routes.js';
 import { TaskController } from './modules/tasks/task.controller.js';
 import { createTaskRouter, createTaskStatusRouter } from './modules/tasks/task.routes.js';
@@ -35,6 +36,8 @@ export interface AppDependencies {
   accessService: AccessService;
   tokenService: TokenService;
   sessionStore: SessionStore;
+  /** null = captcha desactivado (AUTH_CAPTCHA=false). */
+  captcha: ProofOfWorkCaptcha | null;
   checkDatabase: HealthCheck;
   failedAttemptsLimit?: FailedAttemptsLimit;
 }
@@ -50,7 +53,11 @@ function createApiRouter(deps: AppDependencies): Router {
 
   api.use(
     '/auth',
-    createAuthRouter(new AuthController(deps.authService), deps.failedAttemptsLimit),
+    createAuthRouter(
+      new AuthController(deps.authService, deps.captcha),
+      deps.captcha,
+      deps.failedAttemptsLimit,
+    ),
   );
   api.use('/tasks', authenticate, createTaskRouter(taskController));
   api.use('/task-statuses', authenticate, createTaskStatusRouter(taskController));

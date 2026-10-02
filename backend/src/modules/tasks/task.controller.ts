@@ -3,6 +3,7 @@ import { requireAuthUser } from '../../middlewares/authenticate.js';
 import type { ValidatedHandler } from '../../middlewares/validate.js';
 import type {
   addTaskNoteSchemas,
+  areaPerformanceSchemas,
   changeTaskStatusSchemas,
   createTaskSchemas,
   listTasksSchemas,
@@ -39,6 +40,10 @@ export class TaskController {
 
   stats: ValidatedHandler<typeof taskStatsSchemas> = async ({ query }, req, res) => {
     res.status(200).json(await this.taskService.stats(query, requireAuthUser(req)));
+  };
+
+  statsByArea: ValidatedHandler<typeof areaPerformanceSchemas> = async ({ query }, req, res) => {
+    res.status(200).json(await this.taskService.statsByArea(query, requireAuthUser(req)));
   };
 
   timeline: ValidatedHandler<typeof taskTimelineSchemas> = async ({ params }, req, res) => {

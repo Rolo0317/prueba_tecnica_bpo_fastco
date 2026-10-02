@@ -47,6 +47,8 @@ export const listTasksSchemas = {
   query: z.object({
     status: z.preprocess(emptyToUndefined, statusCode.optional()),
     areaId: optionalAreaId,
+    search: z.preprocess(emptyToUndefined, z.string().trim().max(100).optional()),
+    priority: z.preprocess(emptyToUndefined, z.enum(PRIORITY_CODES).optional()),
     page: z.coerce.number().int().min(1).max(100_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(10),
   }),
@@ -64,6 +66,16 @@ export const taskStatsSchemas = {
       .optional()
       .transform((value) => value ?? null),
     areaId: optionalAreaId,
+  }),
+};
+
+export const areaPerformanceSchemas = {
+  query: z.object({
+    today: z.iso
+      .date('La fecha debe tener el formato AAAA-MM-DD.')
+      .optional()
+      .transform((value) => value ?? null),
+    days: z.coerce.number().int().min(1).max(365).default(30),
   }),
 };
 

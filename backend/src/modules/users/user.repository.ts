@@ -6,8 +6,10 @@ import type {
   AssignableUser,
   CreateUserInput,
   ManagedUser,
+  PasswordResetContact,
   SetUserActiveInput,
   UpdateUserInput,
+  UserListFilter,
   UserPage,
   UserRepository,
   UserWithCredentials,
@@ -53,6 +55,9 @@ interface UserRow extends RoleColumns, AreaColumns {
   IsActive: boolean;
   CreatedAt: Date;
   PasswordChangedAt: Date | null;
+  /** Solo la devuelve el listado. */
+  PasswordResetRequestedAt?: Date | null;
+  Email: string | null;
 }
 
 const isoOrNull = (date: Date | null): string | null => date?.toISOString() ?? null;
@@ -74,11 +79,13 @@ const toManagedUser = (row: UserRow): ManagedUser => ({
   id: row.UserId,
   username: row.Username,
   fullName: row.FullName,
+  email: row.Email,
   role: roleOf(row),
   area: areaOf(row),
   isActive: row.IsActive,
   createdAt: row.CreatedAt.toISOString(),
   passwordChangedAt: isoOrNull(row.PasswordChangedAt),
+  passwordResetRequestedAt: isoOrNull(row.PasswordResetRequestedAt ?? null),
 });
 
 const toSessionState = (row: SessionRow): SessionState => ({
@@ -119,11 +126,16 @@ export class SqlUserRepository implements UserRepository {
     return rows[0] ? toSessionState(rows[0]) : null;
   }
 
-  async list(page: number, pageSize: number): Promise<UserPage> {
+  async list(filter: UserListFilter): Promise<UserPage> {
     const { rows, output } = await this.db.execute<UserRow>('dbo.usp_Users_List', {
       inputs: {
-        Page: { type: sql.Int, value: page },
-        PageSize: { type: sql.Int, value: pageSize },
+        Page: { type: sql.Int, value: filter.page },
+        PageSize: { type: sql.Int, value: filter.pageSize },
+        Search: { type: sql.NVarChar(100), value: filter.search ?? null },
+        RoleId: { type: sql.Int, value: filter.roleId ?? null },
+        AreaId: { type: sql.Int, value: filter.areaId ?? null },
+        Status: { type: sql.VarChar(10), value: filter.status ?? null },
+        PendingReset: { type: sql.Bit, value: filter.pendingReset ?? false },
       },
       outputs: { TotalCount: sql.Int },
     });
@@ -139,6 +151,7 @@ export class SqlUserRepository implements UserRepository {
         RoleId: { type: sql.Int, value: input.roleId },
         AreaId: optionalInt(input.areaId),
         ActorId: optionalInt(input.actorId),
+        Email: { type: sql.NVarChar(254), value: input.email },
       },
     });
     return this.single(rows, 'usp_Users_Create');
@@ -152,6 +165,8 @@ export class SqlUserRepository implements UserRepository {
         RoleId: { type: sql.Int, value: input.roleId },
         AreaId: optionalInt(input.areaId),
         ChangedBy: { type: sql.Int, value: input.changedBy },
+        Email: { type: sql.NVarChar(254), value: input.email ?? null },
+        ChangeEmail: { type: sql.Bit, value: input.email !== undefined },
       },
     });
     return this.single(rows, 'usp_Users_Update');
@@ -192,6 +207,42 @@ export class SqlUserRepository implements UserRepository {
       fullName: row.FullName,
       area: areaOf(row),
     }));
+  }
+
+  async requestPasswordReset(
+    identifier: string,
+    tokenHash: string,
+    expiresAt: Date,
+  ): Promise<PasswordResetContact | null> {
+    const { rows } = await this.db.execute<{ Email: string; FullName: string }>(
+      'dbo.usp_PasswordResets_Request',
+      {
+        inputs: {
+          Identifier: { type: sql.NVarChar(254), value: identifier },
+          TokenHash: { type: sql.Char(64), value: tokenHash },
+          ExpiresAt: { type: sql.DateTime2(3), value: expiresAt },
+        },
+      },
+    );
+    const [row] = rows;
+    return row ? { email: row.Email, fullName: row.FullName } : null;
+  }
+
+  async consumePasswordReset(tokenHash: string, passwordHash: string): Promise<void> {
+    await this.db.execute('dbo.usp_PasswordResets_Consume', {
+      inputs: {
+        TokenHash: { type: sql.Char(64), value: tokenHash },
+        PasswordHash: { type: sql.VarChar(200), value: passwordHash },
+      },
+    });
+  }
+
+  async activateDemoAccounts(passwordHash: string): Promise<number> {
+    const { rows } = await this.db.execute<{ Activated: number }>(
+      'dbo.usp_Users_ActivateDemoAccounts',
+      { inputs: { PasswordHash: { type: sql.VarChar(200), value: passwordHash } } },
+    );
+    return rows[0]?.Activated ?? 0;
   }
 
   async delete(userId: number, changedBy: number): Promise<number> {

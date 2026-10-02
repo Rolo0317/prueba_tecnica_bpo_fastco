@@ -32,6 +32,9 @@ export interface ListTasksFilter {
   status?: string | undefined;
   /** Filtro opcional por área (dentro de lo que el usuario puede ver). */
   areaId?: number | undefined;
+  /** Texto contenido en el título. */
+  search?: string | undefined;
+  priority?: PriorityCode | undefined;
   page: number;
   pageSize: number;
   /** Quién consulta: la BD limita el resultado según sus permisos. */
@@ -131,6 +134,23 @@ export interface TaskStatsFilter {
   viewerId: number;
 }
 
+/** Indicadores de gestión de un área (null = tareas sin área). */
+export interface AreaPerformance {
+  area: NamedRef | null;
+  open: number;
+  overdue: number;
+  /** Cerradas como completadas dentro del periodo. */
+  closed: number;
+  /** Promedio de horas desde la creación hasta completarse; null si no hubo cierres. */
+  avgResolutionHours: number | null;
+}
+
+export interface AreaPerformanceFilter {
+  today: string | null;
+  days: number;
+  viewerId: number;
+}
+
 export interface TaskRepository {
   list(filter: ListTasksFilter): Promise<TaskPage>;
   create(input: CreateTaskInput): Promise<Task>;
@@ -138,6 +158,7 @@ export interface TaskRepository {
   changeStatus(input: ChangeTaskStatusInput): Promise<Task>;
   listStatuses(): Promise<TaskStatus[]>;
   stats(filter: TaskStatsFilter): Promise<TaskStatsSnapshot>;
+  statsByArea(filter: AreaPerformanceFilter): Promise<AreaPerformance[]>;
   addNote(input: AddTaskNoteInput): Promise<TaskNote>;
   timeline(taskId: number, viewerId: number): Promise<TimelineEvent[]>;
 }

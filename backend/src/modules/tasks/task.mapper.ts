@@ -1,4 +1,11 @@
-import type { PriorityCode, Task, TaskNote, TaskStatus, TimelineEvent } from './task.types.js';
+import type {
+  AreaPerformance,
+  PriorityCode,
+  Task,
+  TaskNote,
+  TaskStatus,
+  TimelineEvent,
+} from './task.types.js';
 
 /** Fila de dbo.vw_TaskDetails tal como la devuelven los Stored Procedures. */
 export interface TaskRow {
@@ -25,6 +32,26 @@ export interface StatusCountRow {
   Name: string;
   IsFinal: boolean;
   TaskCount: number;
+}
+
+export interface AreaPerformanceRow {
+  AreaId: number | null;
+  AreaName: string | null;
+  OpenCount: number;
+  OverdueCount: number;
+  ClosedCount: number;
+  /** DECIMAL: el driver lo entrega como número. */
+  AvgResolutionHours: number | null;
+}
+
+export function toAreaPerformance(row: AreaPerformanceRow): AreaPerformance {
+  return {
+    area: row.AreaId === null ? null : { id: row.AreaId, name: row.AreaName ?? '' },
+    open: row.OpenCount,
+    overdue: row.OverdueCount,
+    closed: row.ClosedCount,
+    avgResolutionHours: row.AvgResolutionHours,
+  };
 }
 
 export interface TaskStatusRow {

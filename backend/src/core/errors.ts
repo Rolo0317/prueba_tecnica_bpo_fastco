@@ -13,6 +13,9 @@ export interface ErrorDetail {
   message: string;
 }
 
+/** Datos numéricos que ayudan al cliente a reaccionar (p. ej. intentos restantes). */
+export type ErrorMeta = Readonly<Record<string, number>>;
+
 /** Error de aplicación: lleva el código HTTP y un mensaje seguro para el cliente. */
 export class AppError extends Error {
   constructor(
@@ -20,6 +23,7 @@ export class AppError extends Error {
     readonly code: ErrorCode,
     message: string,
     readonly details?: ErrorDetail[],
+    readonly meta?: ErrorMeta,
   ) {
     super(message);
     this.name = new.target.name;
@@ -33,8 +37,8 @@ export class ValidationError extends AppError {
 }
 
 export class UnauthorizedError extends AppError {
-  constructor(message = 'No autenticado.') {
-    super(401, 'UNAUTHORIZED', message);
+  constructor(message = 'No autenticado.', meta?: ErrorMeta) {
+    super(401, 'UNAUTHORIZED', message, undefined, meta);
   }
 }
 

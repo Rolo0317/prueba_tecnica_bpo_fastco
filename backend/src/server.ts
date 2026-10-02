@@ -48,11 +48,10 @@ async function main(): Promise<void> {
 
   const pool = await connectWithRetry(config, logger);
   const db = new ProcedureExecutor(pool);
-  const container = createContainer(config, db);
+  const container = createContainer(config, db, logger);
 
   await seedInitialData(config.seed, {
     users: container.userRepository,
-    tasks: container.taskRepository,
     access: container.accessService,
     passwordHasher: container.passwordHasher,
     logger,

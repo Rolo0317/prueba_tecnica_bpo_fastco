@@ -1,10 +1,11 @@
 import { UnauthorizedError, ValidationError } from '../../core/errors.js';
 import { toPaginated, type Paginated } from '../../core/pagination.js';
 import type { PasswordHasher } from '../auth/auth.types.js';
-import type { ManagedUser, UserAssignment, UserRepository } from './user.types.js';
+import type { ManagedUser, UserAssignment, UserListFilter, UserRepository } from './user.types.js';
 
 export interface NewUser extends UserAssignment {
   username: string;
+  email: string | null;
   fullName: string;
   password: string;
 }
@@ -21,9 +22,9 @@ export class UserService {
     private readonly passwordHasher: PasswordHasher,
   ) {}
 
-  async list(page: number, pageSize: number): Promise<Paginated<ManagedUser>> {
-    const { users, total } = await this.users.list(page, pageSize);
-    return toPaginated(users, total, page, pageSize);
+  async list(filter: UserListFilter): Promise<Paginated<ManagedUser>> {
+    const { users, total } = await this.users.list(filter);
+    return toPaginated(users, total, filter.page, filter.pageSize);
   }
 
   async create({ password, ...user }: NewUser, actorId: number): Promise<ManagedUser> {
@@ -31,7 +32,11 @@ export class UserService {
     return this.users.create({ ...user, passwordHash, actorId });
   }
 
-  update(userId: number, data: UserAssignment & { fullName: string }, changedBy: number) {
+  update(
+    userId: number,
+    data: UserAssignment & { fullName: string; email?: string | null | undefined },
+    changedBy: number,
+  ) {
     return this.users.update({ userId, ...data, changedBy });
   }
 

@@ -18,7 +18,9 @@ import {
   type Role,
   type RoleInput,
 } from '../../src/modules/access/access.types.js';
+import type { MailMessage, MailSender } from '../../src/core/mailer.js';
 import { AuthService } from '../../src/modules/auth/auth.service.js';
+import { ProofOfWorkCaptcha } from '../../src/modules/auth/captcha.service.js';
 import {
   passwordVersionOf,
   type AuthUser,
@@ -29,6 +31,8 @@ import { JwtTokenService } from '../../src/modules/auth/token.service.js';
 import { TaskService } from '../../src/modules/tasks/task.service.js';
 import type {
   AddTaskNoteInput,
+  AreaPerformance,
+  AreaPerformanceFilter,
   ChangeTaskStatusInput,
   CreateTaskInput,
   ListTasksFilter,
@@ -49,6 +53,7 @@ import type {
   ManagedUser,
   SetUserActiveInput,
   UpdateUserInput,
+  UserListFilter,
   UserPage,
   UserRepository,
   UserWithCredentials,
@@ -244,6 +249,8 @@ interface StoredUser {
   passwordChangedAt: string | null;
   passwordHash: string;
   deleted?: boolean;
+  resetRequestedAt?: string | null;
+  email: string | null;
 }
 
 /** Perfil de acceso de un usuario activo (lo que resuelve dbo.tvf_UserAccess). */
@@ -281,11 +288,54 @@ export class InMemoryUserRepository implements UserRepository {
     );
   }
 
-  list(page: number, pageSize: number): Promise<UserPage> {
-    const existing = this.users.filter((u) => !u.deleted);
+  list({ page, pageSize, search, roleId, areaId, status, pendingReset }: UserListFilter) {
+    const text = search?.toLowerCase();
+    const matching = this.users.filter(
+      (u) =>
+        !u.deleted &&
+        (!text ||
+          u.fullName.toLowerCase().includes(text) ||
+          u.username.toLowerCase().includes(text)) &&
+        (roleId === undefined || u.roleId === roleId) &&
+        (areaId === undefined || u.areaId === areaId) &&
+        (status === undefined || u.isActive === (status === 'ACTIVE')) &&
+        (!pendingReset || Boolean(u.resetRequestedAt)),
+    );
     const start = (page - 1) * pageSize;
-    const users = existing.slice(start, start + pageSize).map((u) => this.managed(u));
-    return Promise.resolve({ users, total: existing.length });
+    const users = matching.slice(start, start + pageSize).map((u) => this.managed(u));
+    return Promise.resolve<UserPage>({ users, total: matching.length });
+  }
+
+  /** Enlaces de restablecimiento: hash del token → usuario, vencimiento y uso. */
+  readonly resetTokens = new Map<string, { userId: number; expiresAt: Date; used: boolean }>();
+
+  requestPasswordReset(identifier: string, tokenHash: string, expiresAt: Date) {
+    const value = identifier.trim();
+    const user = this.users.find(
+      (u) => this.isLive(u) && (u.username === value || u.email === value.toLowerCase()),
+    );
+    if (!user) return Promise.resolve(null);
+    if (!user.email) {
+      user.resetRequestedAt ??= new Date().toISOString();
+      return Promise.resolve(null);
+    }
+    this.resetTokens.set(tokenHash, { userId: user.id, expiresAt, used: false });
+    return Promise.resolve({ email: user.email, fullName: user.fullName });
+  }
+
+  consumePasswordReset(tokenHash: string, passwordHash: string): Promise<void> {
+    const entry = this.resetTokens.get(tokenHash);
+    const user = entry && this.live(entry.userId);
+    if (!entry || entry.used || entry.expiresAt.getTime() <= Date.now() || !user) {
+      return Promise.reject(new ValidationError('El enlace no es válido o ya expiró.'));
+    }
+    entry.used = true;
+    Object.assign(user, {
+      passwordHash,
+      passwordChangedAt: new Date().toISOString(),
+      resetRequestedAt: null,
+    });
+    return Promise.resolve();
   }
 
   async create({ actorId, ...input }: CreateUserInput): Promise<ManagedUser> {
@@ -304,14 +354,14 @@ export class InMemoryUserRepository implements UserRepository {
     return this.managed(user);
   }
 
-  async update({ userId, fullName, roleId, areaId, changedBy }: UpdateUserInput) {
+  async update({ userId, fullName, roleId, areaId, changedBy, email }: UpdateUserInput) {
     const user = await this.manageable(userId, changedBy);
     if (roleId !== user.roleId) {
       if (userId === changedBy) throw new ConflictError('No puedes cambiar tu propio rol.');
       this.assertNotLastAdmin(user);
     }
     await this.validateAssignment(roleId, areaId, changedBy);
-    Object.assign(user, { fullName, roleId, areaId });
+    Object.assign(user, { fullName, roleId, areaId, ...(email !== undefined && { email }) });
     return this.managed(user);
   }
 
@@ -331,7 +381,11 @@ export class InMemoryUserRepository implements UserRepository {
       actorId === null || actorId === userId
         ? await this.find(userId)
         : await this.manageable(userId, actorId);
-    Object.assign(user, { passwordHash, passwordChangedAt: new Date().toISOString() });
+    Object.assign(user, {
+      passwordHash,
+      passwordChangedAt: new Date().toISOString(),
+      resetRequestedAt: null,
+    });
   }
 
   listAssignable(actorId: number): Promise<AssignableUser[]> {
@@ -350,6 +404,10 @@ export class InMemoryUserRepository implements UserRepository {
         area: this.areaRef(areaId),
       })),
     );
+  }
+
+  activateDemoAccounts(): Promise<number> {
+    return Promise.resolve(0);
   }
 
   async delete(userId: number, changedBy: number): Promise<number> {
@@ -463,11 +521,13 @@ export class InMemoryUserRepository implements UserRepository {
       id,
       username,
       fullName,
+      email: user.email,
       role: this.roleRef(user.roleId),
       area: this.areaRef(user.areaId),
       isActive,
       createdAt,
       passwordChangedAt,
+      passwordResetRequestedAt: user.resetRequestedAt ?? null,
     };
   }
 }
@@ -547,13 +607,23 @@ export class InMemoryTaskRepository implements TaskRepository {
     }
   }
 
-  list({ status, areaId, page, pageSize, viewerId }: ListTasksFilter): Promise<TaskPage> {
+  list({
+    status,
+    areaId,
+    search,
+    priority,
+    page,
+    pageSize,
+    viewerId,
+  }: ListTasksFilter): Promise<TaskPage> {
     if (status && !this.findStatus(status)) {
       return Promise.reject(new ValidationError('El estado indicado no existe.'));
     }
     const filtered = this.visibleTo(viewerId)
       .filter((task) => !status || task.status.code === status)
       .filter((task) => areaId === undefined || task.area?.id === areaId)
+      .filter((task) => !priority || task.priority === priority)
+      .filter((task) => !search || task.title.toLowerCase().includes(search.toLowerCase()))
       .sort((a, b) => b.id - a.id);
     const start = (page - 1) * pageSize;
     return Promise.resolve({
@@ -702,6 +772,34 @@ export class InMemoryTaskRepository implements TaskRepository {
     });
   }
 
+  /** Versión simplificada: sin historial, el tiempo de cierre se toma de updatedAt. */
+  statsByArea({ today, viewerId }: AreaPerformanceFilter): Promise<AreaPerformance[]> {
+    const day = today ?? new Date().toISOString().slice(0, 10);
+    const groups = new Map<number | null, Task[]>();
+    for (const task of this.visibleTo(viewerId)) {
+      const key = task.area?.id ?? null;
+      groups.set(key, [...(groups.get(key) ?? []), task]);
+    }
+    return Promise.resolve(
+      [...groups.values()].map((tasks) => {
+        const open = tasks.filter((t) => !this.findStatus(t.status.code)?.isFinal);
+        const closed = tasks.filter((t) => t.status.code === 'COMPLETED');
+        const hours = closed.map(
+          (t) => (Date.parse(t.updatedAt) - Date.parse(t.createdAt)) / 3_600_000,
+        );
+        return {
+          area: tasks[0]?.area ?? null,
+          open: open.length,
+          overdue: open.filter((t) => t.dueDate !== null && t.dueDate < day).length,
+          closed: closed.length,
+          avgResolutionHours: hours.length
+            ? Math.round((hours.reduce((a, b) => a + b, 0) / hours.length) * 10) / 10
+            : null,
+        };
+      }),
+    );
+  }
+
   private findStatus(code: string): TaskStatus | undefined {
     return STATUSES.find((s) => s.code === code);
   }
@@ -720,6 +818,7 @@ export const TEST_AGENT = {
 
 export interface NewTestUser {
   username: string;
+  email?: string | null;
   fullName?: string;
   roleId: number;
   areaId: number | null;
@@ -729,11 +828,19 @@ export interface NewTestUser {
 /** Agrega un usuario directamente (sin pasar por las reglas de quién lo crea). */
 export async function addUser(
   users: InMemoryUserRepository,
-  { username, fullName = username, roleId, areaId, password = 'Clave-Prueba-123' }: NewTestUser,
+  {
+    username,
+    fullName = username,
+    email = null,
+    roleId,
+    areaId,
+    password = 'Clave-Prueba-123',
+  }: NewTestUser,
 ): Promise<number> {
   const user = await users.create({
     username,
     fullName,
+    email,
     passwordHash: await new FakePasswordHasher().hash(password),
     roleId,
     areaId,
@@ -762,31 +869,57 @@ export interface TestContext {
   users: InMemoryUserRepository;
   tasks: InMemoryTaskRepository;
   tokenService: JwtTokenService;
+  mail: InMemoryMailSender;
   databaseUp: { value: boolean };
 }
 
-/** Arma la app real (rutas, middlewares, errores) con dependencias en memoria. */
-export async function buildTestContext(): Promise<TestContext> {
+/** Bandeja en memoria: guarda los correos "enviados" para inspeccionarlos. */
+export class InMemoryMailSender implements MailSender {
+  readonly sent: MailMessage[] = [];
+
+  send(message: MailMessage): Promise<void> {
+    this.sent.push(message);
+    return Promise.resolve();
+  }
+}
+
+/** Captcha fácil (máximo 50 intentos) para que las pruebas lo resuelvan al instante. */
+export const createTestCaptcha = () =>
+  new ProofOfWorkCaptcha('test-captcha-secret', { maxNumber: 50, ttlMs: 60_000 });
+
+/**
+ * Arma la app real (rutas, middlewares, errores) con dependencias en memoria.
+ * El captcha está desactivado salvo que se pase uno (como con AUTH_CAPTCHA=false).
+ */
+export async function buildTestContext(
+  options: { captcha?: ProofOfWorkCaptcha | null } = {},
+): Promise<TestContext> {
   const users = await createTestUsers();
   const tasks = new InMemoryTaskRepository(users);
   const hasher = new FakePasswordHasher();
   const tokenService = new JwtTokenService(TEST_AUTH_CONFIG);
   const databaseUp = { value: true };
+  const mail = new InMemoryMailSender();
 
   const app = createApp({
     config: { trustProxy: 0, corsOrigins: ['http://localhost:8080'] },
     logger: pino({ level: 'silent' }),
-    authService: new AuthService(users, hasher, tokenService),
+    authService: new AuthService(users, hasher, tokenService, {
+      mailer: mail,
+      logger: pino({ level: 'silent' }),
+      publicUrl: 'http://localhost:8080',
+    }),
     taskService: new TaskService(tasks),
     userService: new UserService(users, hasher),
     accessService: new AccessService(users.access),
     tokenService,
     sessionStore: users,
+    captcha: options.captcha ?? null,
     checkDatabase: () => (databaseUp.value ? Promise.resolve() : Promise.reject(new Error('down'))),
     failedAttemptsLimit: { windowMs: 60_000, limit: 3 },
   });
 
-  return { app, users, tasks, tokenService, databaseUp };
+  return { app, users, tasks, tokenService, mail, databaseUp };
 }
 
 /**

@@ -3,6 +3,7 @@ import { withValidation } from '../../middlewares/validate.js';
 import type { TaskController } from './task.controller.js';
 import {
   addTaskNoteSchemas,
+  areaPerformanceSchemas,
   changeTaskStatusSchemas,
   createTaskSchemas,
   listTasksSchemas,
@@ -16,6 +17,7 @@ export function createTaskRouter(controller: TaskController): Router {
 
   router.get('/', withValidation(listTasksSchemas, controller.list));
   router.get('/stats', withValidation(taskStatsSchemas, controller.stats));
+  router.get('/stats/by-area', withValidation(areaPerformanceSchemas, controller.statsByArea));
   router.post('/', withValidation(createTaskSchemas, controller.create));
   router.patch('/:id', withValidation(updateTaskSchemas, controller.update));
   router.get('/:id/timeline', withValidation(taskTimelineSchemas, controller.timeline));

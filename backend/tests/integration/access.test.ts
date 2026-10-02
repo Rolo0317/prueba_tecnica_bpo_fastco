@@ -267,3 +267,51 @@ describe('Supervisor de área', () => {
     expect(finance.body.data[0].area).toEqual({ id: AREA.FINANCE, name: 'Finanzas' });
   });
 });
+
+describe('Desempeño por área', () => {
+  it('agrupa abiertas, vencidas y cerradas por área dentro del alcance de quien consulta', async () => {
+    const create = (body: object) =>
+      request(ctx.app).post(api('/tasks')).set('Authorization', asAdmin()).send(body);
+    await create({ title: 'Vencida', areaId: AREA.OPERATIONS, dueDate: '2020-01-01' });
+    await create({ title: 'Otra', areaId: AREA.OPERATIONS });
+    await create({ title: 'Finanzas', areaId: AREA.FINANCE });
+    for (const status of ['IN_PROGRESS', 'COMPLETED']) {
+      await request(ctx.app)
+        .patch(api('/tasks/3/status'))
+        .set('Authorization', asAdmin())
+        .send({ status });
+    }
+
+    const admin = await request(ctx.app)
+      .get(api('/tasks/stats/by-area?today=2026-10-01'))
+      .set('Authorization', asAdmin());
+    const agent = await request(ctx.app)
+      .get(api('/tasks/stats/by-area'))
+      .set('Authorization', asAgent());
+
+    expect(admin.status).toBe(200);
+    expect(admin.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          area: { id: AREA.OPERATIONS, name: 'Operaciones' },
+          open: 2,
+          overdue: 1,
+        }),
+        expect.objectContaining({
+          area: { id: AREA.FINANCE, name: 'Finanzas' },
+          open: 0,
+          closed: 1,
+        }),
+      ]),
+    );
+    expect(agent.body).toEqual([]);
+  });
+
+  it('400 con un periodo fuera de rango', async () => {
+    const res = await request(ctx.app)
+      .get(api('/tasks/stats/by-area?days=0'))
+      .set('Authorization', asAdmin());
+
+    expect(res.status).toBe(400);
+  });
+});

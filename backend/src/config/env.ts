@@ -1,3 +1,4 @@
+import type { SmtpConfig } from '../core/mailer.js';
 import { z } from 'zod';
 
 const booleanString = z.enum(['true', 'false']).transform((value) => value === 'true');
@@ -29,11 +30,36 @@ const envSchema = z.object({
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(10).max(14).default(12),
   AUTH_MAX_FAILED_ATTEMPTS: z.coerce.number().int().min(1).max(1000).default(10),
   AUTH_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+  /** Correo (opcional): sin SMTP_HOST los enlaces de restablecimiento no se envían. */
+  SMTP_HOST: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_SECURE: booleanString.default(false),
+  SMTP_USER: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+  SMTP_PASSWORD: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+  MAIL_FROM: z.string().min(3).default('Gestor de Tareas <no-responder@localhost>'),
+  APP_PUBLIC_URL: z.url().default('http://localhost:8080'),
+  /** Captcha "No soy un robot" en el login y en "¿Olvidaste tu contraseña?". */
+  AUTH_CAPTCHA: booleanString.default(true),
 
   SEED_ADMIN_USERNAME: z.string().trim().min(3).max(50),
   SEED_ADMIN_PASSWORD: z.string().min(8),
   SEED_ADMIN_FULL_NAME: z.string().trim().min(1).max(100),
-  SEED_SAMPLE_TASKS: booleanString.default(false),
+  /** Correo del administrador inicial (opcional) para que también pueda restablecer por enlace. */
+  SEED_ADMIN_EMAIL: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.email().optional(),
+  ),
+  /** Contraseña de las cuentas de demostración (opcional; sin ella quedan bloqueadas). */
+  SEED_DEMO_PASSWORD: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z
+      .string()
+      .min(10, 'Mínimo 10 caracteres.')
+      .regex(/[a-z]/, 'Debe incluir una minúscula.')
+      .regex(/[A-Z]/, 'Debe incluir una mayúscula.')
+      .regex(/\d/, 'Debe incluir un número.')
+      .optional(),
+  ),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -59,12 +85,19 @@ export interface AppConfig {
     bcryptSaltRounds: number;
     /** Intentos fallidos permitidos (login / cambio de contraseña) por IP y ventana. */
     failedAttemptsLimit: { limit: number; windowMs: number };
+    captcha: boolean;
+  };
+  mail: {
+    smtp: SmtpConfig | null;
+    publicUrl: string;
   };
   seed: {
     adminUsername: string;
     adminPassword: string;
     adminFullName: string;
-    sampleTasks: boolean;
+    adminEmail: string | null;
+    /** undefined = las cuentas de demostración siguen bloqueadas. */
+    demoPassword: string | undefined;
   };
 }
 
@@ -111,12 +144,27 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
         limit: env.AUTH_MAX_FAILED_ATTEMPTS,
         windowMs: env.AUTH_LOCKOUT_MINUTES * 60_000,
       },
+      captcha: env.AUTH_CAPTCHA,
+    },
+    mail: {
+      smtp: env.SMTP_HOST
+        ? {
+            host: env.SMTP_HOST,
+            port: env.SMTP_PORT,
+            secure: env.SMTP_SECURE,
+            user: env.SMTP_USER,
+            password: env.SMTP_PASSWORD,
+            from: env.MAIL_FROM,
+          }
+        : null,
+      publicUrl: env.APP_PUBLIC_URL,
     },
     seed: {
       adminUsername: env.SEED_ADMIN_USERNAME,
       adminPassword: env.SEED_ADMIN_PASSWORD,
       adminFullName: env.SEED_ADMIN_FULL_NAME,
-      sampleTasks: env.SEED_SAMPLE_TASKS,
+      adminEmail: env.SEED_ADMIN_EMAIL?.toLowerCase() ?? null,
+      demoPassword: env.SEED_DEMO_PASSWORD,
     },
   };
 }

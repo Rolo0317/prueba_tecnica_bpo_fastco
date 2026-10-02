@@ -50,6 +50,21 @@ describe('Administración de usuarios: autorización', () => {
 });
 
 describe('Administración de usuarios: casos de uso', () => {
+  it('GET filtra por nombre, estado y rol', async () => {
+    const get = (query: string) =>
+      request(ctx.app).get(`/api/v1/users?${query}`).set('Authorization', asAdmin());
+
+    const byName = await get('search=AGENTE%20de');
+    const inactive = await get('status=INACTIVE');
+    const byRole = await get(`roleId=${String(ROLE.ADMIN)}`);
+    const invalid = await get('status=BORRADO');
+
+    expect(byName.body.data.map((u: { username: string }) => u.username)).toEqual(['agente']);
+    expect(inactive.body.pagination.total).toBe(0);
+    expect(byRole.body.data.map((u: { username: string }) => u.username)).toEqual(['admin']);
+    expect(invalid.status).toBe(400);
+  });
+
   it('GET lista los usuarios paginados sin exponer hashes', async () => {
     const res = await request(ctx.app).get('/api/v1/users').set('Authorization', asAdmin());
 

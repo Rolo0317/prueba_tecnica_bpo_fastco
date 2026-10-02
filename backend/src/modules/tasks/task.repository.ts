@@ -2,10 +2,12 @@ import sql from 'mssql';
 import type { ProcedureParameter, ProcedureRunner } from '../../database/procedure-executor.js';
 import {
   PRIORITY_VALUE,
+  toAreaPerformance,
   toTask,
   toTaskNote,
   toTaskStatus,
   toTimelineEvent,
+  type AreaPerformanceRow,
   type StatusCountRow,
   type TaskNoteRow,
   type TaskRow,
@@ -14,6 +16,8 @@ import {
 } from './task.mapper.js';
 import type {
   AddTaskNoteInput,
+  AreaPerformance,
+  AreaPerformanceFilter,
   ChangeTaskStatusInput,
   CreateTaskInput,
   ListTasksFilter,
@@ -55,6 +59,11 @@ export class SqlTaskRepository implements TaskRepository {
       inputs: {
         StatusCode: { type: sql.VarChar(20), value: filter.status ?? null },
         AreaId: optionalInt(filter.areaId),
+        Search: { type: sql.NVarChar(100), value: filter.search ?? null },
+        Priority: {
+          type: sql.TinyInt,
+          value: filter.priority ? PRIORITY_VALUE[filter.priority] : null,
+        },
         Page: { type: sql.Int, value: filter.page },
         PageSize: { type: sql.Int, value: filter.pageSize },
         ViewerId: { type: sql.Int, value: filter.viewerId },
@@ -133,6 +142,17 @@ export class SqlTaskRepository implements TaskRepository {
         count: row.TaskCount,
       })),
     };
+  }
+
+  async statsByArea({ today, days, viewerId }: AreaPerformanceFilter): Promise<AreaPerformance[]> {
+    const { rows } = await this.db.execute<AreaPerformanceRow>('dbo.usp_Tasks_StatsByArea', {
+      inputs: {
+        Today: dateOnly(today),
+        ViewerId: { type: sql.Int, value: viewerId },
+        Days: { type: sql.Int, value: days },
+      },
+    });
+    return rows.map(toAreaPerformance);
   }
 
   async addNote(input: AddTaskNoteInput): Promise<TaskNote> {

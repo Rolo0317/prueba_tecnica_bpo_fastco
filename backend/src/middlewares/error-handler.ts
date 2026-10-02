@@ -43,6 +43,7 @@ export function createErrorHandler(logger: Logger): ErrorRequestHandler {
         code: appError.code,
         message: appError.message,
         ...(appError.details && { details: appError.details }),
+        ...(appError.meta && { meta: appError.meta }),
       },
     });
   };

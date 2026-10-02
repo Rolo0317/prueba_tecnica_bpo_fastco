@@ -23,7 +23,7 @@ export class UserController {
   ) {}
 
   list: ValidatedHandler<typeof listUsersSchemas> = async ({ query }, _req, res) => {
-    res.status(200).json(await this.userService.list(query.page, query.pageSize));
+    res.status(200).json(await this.userService.list(query));
   };
 
   create: ValidatedHandler<typeof createUserSchemas> = async ({ body }, req, res) => {
