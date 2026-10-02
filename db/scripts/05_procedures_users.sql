@@ -1,16 +1,112 @@
 /* =============================================================================
    05_procedures_users.sql
-   Procedimientos del módulo de usuarios: login, administración (solo ADMIN,
-   validado en la API) y cambio de contraseña.
+   Procedimientos del módulo de usuarios: login, sesión, administración y contraseñas.
 
-   Reglas de integridad que se garantizan aquí, aunque la API también valide:
+   Reglas de integridad y seguridad que se garantizan aquí, aunque la API también valide:
    - Solo se almacenan hashes bcrypt (nunca contraseñas en texto plano).
-   - Un administrador no puede desactivarse ni quitarse el rol a sí mismo.
-   - Siempre debe quedar al menos un administrador activo. El conteo se hace con
-     UPDLOCK + HOLDLOCK para que dos administradores no se desactiven entre sí
-     al mismo tiempo y dejen el sistema sin administradores.
+   - SIN ESCALADA DE PRIVILEGIOS: quien administra usuarios no puede asignar un rol con
+     permisos que él mismo no tiene, ni gestionar a alguien con más permisos que él.
+   - Nadie cambia su propio rol, ni se desactiva o elimina a sí mismo.
+   - Siempre queda al menos un usuario activo con el rol Administrador. El conteo se hace
+     con UPDLOCK + HOLDLOCK para que dos operaciones simultáneas no lo dejen en cero.
    ============================================================================= */
 USE [$(DB_NAME)];
+GO
+
+/* Permisos de un rol que el actor NO tiene (sin filas = puede otorgarlo o gestionarlo). */
+CREATE OR ALTER FUNCTION dbo.tvf_RolePermissionsNotHeld (@RoleId INT, @ActorId INT)
+RETURNS TABLE
+AS
+RETURN
+SELECT rp.PermissionCode
+FROM dbo.RolePermissions AS rp
+WHERE rp.RoleId = @RoleId
+  AND NOT EXISTS (
+      SELECT 1
+      FROM dbo.Users AS actor
+      INNER JOIN dbo.RolePermissions AS held ON held.RoleId = actor.RoleId
+      WHERE actor.UserId = @ActorId
+        AND actor.IsActive = 1
+        AND actor.DeletedAt IS NULL
+        AND held.PermissionCode = rp.PermissionCode
+  );
+GO
+
+/* El actor puede gestionar al usuario objetivo solo si este no tiene más permisos que él. */
+CREATE OR ALTER PROCEDURE dbo.usp_Users_AssertCanManage
+    @UserId  INT,
+    @ActorId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        DECLARE @TargetRoleId INT = (SELECT RoleId FROM dbo.Users WHERE UserId = @UserId AND DeletedAt IS NULL);
+
+        IF @TargetRoleId IS NULL
+            THROW 50404, N'El usuario no existe.', 1;
+
+        IF EXISTS (SELECT 1 FROM dbo.tvf_RolePermissionsNotHeld(@TargetRoleId, @ActorId))
+            THROW 50403, N'No puedes gestionar a un usuario con más permisos que los tuyos.', 1;
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* Valida el rol y el área que se asignan a un usuario. @ActorId NULL = sistema (seed). */
+CREATE OR ALTER PROCEDURE dbo.usp_Users_ValidateRoleAndArea
+    @RoleId  INT,
+    @AreaId  INT,
+    @ActorId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        IF @RoleId IS NULL OR NOT EXISTS (SELECT 1 FROM dbo.Roles WHERE RoleId = @RoleId)
+            THROW 50400, N'El rol indicado no existe.', 1;
+
+        IF @AreaId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Areas WHERE AreaId = @AreaId AND IsActive = 1)
+            THROW 50400, N'El área indicada no existe o está inactiva.', 1;
+
+        IF @ActorId IS NOT NULL AND EXISTS (SELECT 1 FROM dbo.tvf_RolePermissionsNotHeld(@RoleId, @ActorId))
+            THROW 50403, N'No puedes asignar un rol con permisos que tú no tienes.', 1;
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* Falla si @UserId es el único Administrador activo (bloquea el rango contado). */
+CREATE OR ALTER PROCEDURE dbo.usp_Users_AssertNotLastAdmin
+    @UserId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        DECLARE @AdminRoleId INT = (SELECT RoleId FROM dbo.Roles WHERE Code = 'ADMIN');
+
+        IF EXISTS (
+            SELECT 1 FROM dbo.Users
+            WHERE UserId = @UserId AND RoleId = @AdminRoleId AND IsActive = 1 AND DeletedAt IS NULL
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM dbo.Users WITH (UPDLOCK, HOLDLOCK)
+            WHERE RoleId = @AdminRoleId AND IsActive = 1 AND DeletedAt IS NULL AND UserId <> @UserId
+        )
+            THROW 50409, N'Debe quedar al menos un Administrador activo.', 1;
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH;
+END;
 GO
 
 CREATE OR ALTER PROCEDURE dbo.usp_Users_GetByUsername
@@ -21,7 +117,7 @@ BEGIN
     SET XACT_ABORT ON;
 
     BEGIN TRY
-        SELECT UserId, Username, PasswordHash, FullName, Role, PasswordChangedAt
+        SELECT UserId, Username, PasswordHash, FullName, PasswordChangedAt
         FROM dbo.Users
         WHERE Username = TRIM(@Username)
           AND IsActive = 1
@@ -42,11 +138,47 @@ BEGIN
     SET XACT_ABORT ON;
 
     BEGIN TRY
-        SELECT UserId, Username, PasswordHash, FullName, Role, PasswordChangedAt
+        SELECT UserId, Username, PasswordHash, FullName, PasswordChangedAt
         FROM dbo.Users
         WHERE UserId = @UserId
           AND IsActive = 1
           AND DeletedAt IS NULL;
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* Estado vigente de la sesión: se consulta en cada petición autenticada.
+   Sin filas = usuario inactivo o eliminado (su token deja de valer de inmediato).
+   Devuelve rol, área y permisos efectivos (CSV): un cambio de rol, de área o de los
+   permisos de un rol aplica desde la siguiente petición, sin volver a iniciar sesión.
+   La fecha del último cambio de contraseña permite cerrar las sesiones anteriores. */
+CREATE OR ALTER PROCEDURE dbo.usp_Users_GetSessionState
+    @UserId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        SELECT
+            u.UserId, u.Username, u.FullName,
+            u.RoleId, r.Name AS RoleName,
+            u.AreaId, ar.Name AS AreaName,
+            u.PasswordChangedAt,
+            ISNULL((
+                SELECT STRING_AGG(rp.PermissionCode, ',')
+                FROM dbo.RolePermissions AS rp
+                WHERE rp.RoleId = u.RoleId
+            ), '') AS Permissions
+        FROM dbo.Users AS u
+        INNER JOIN dbo.Roles AS r ON r.RoleId = u.RoleId
+        LEFT  JOIN dbo.Areas AS ar ON ar.AreaId = u.AreaId
+        WHERE u.UserId = @UserId
+          AND u.IsActive = 1
+          AND u.DeletedAt IS NULL;
     END TRY
     BEGIN CATCH
         THROW;
@@ -72,10 +204,11 @@ BEGIN
 
         SELECT @TotalCount = COUNT(*) FROM dbo.vw_Users;
 
-        SELECT UserId, Username, FullName, Role, IsActive, CreatedAt, PasswordChangedAt
+        SELECT UserId, Username, FullName, RoleId, RoleName, AreaId, AreaName,
+               IsActive, CreatedAt, PasswordChangedAt
         FROM dbo.vw_Users
         -- Activos primero; dentro de ellos, administradores (pocos) y luego los más recientes.
-        ORDER BY IsActive DESC, CASE Role WHEN 'ADMIN' THEN 0 ELSE 1 END, CreatedAt DESC, UserId DESC
+        ORDER BY IsActive DESC, CASE RoleCode WHEN 'ADMIN' THEN 0 ELSE 1 END, CreatedAt DESC, UserId DESC
         OFFSET CAST(@Page - 1 AS BIGINT) * @PageSize ROWS FETCH NEXT @PageSize ROWS ONLY;
     END TRY
     BEGIN CATCH
@@ -84,11 +217,14 @@ BEGIN
 END;
 GO
 
+/* @ActorId NULL solo lo usa el seed del sistema (administrador inicial). */
 CREATE OR ALTER PROCEDURE dbo.usp_Users_Create
     @Username     NVARCHAR(100),
     @PasswordHash VARCHAR(200),
     @FullName     NVARCHAR(200),
-    @Role         VARCHAR(20) = 'AGENT'
+    @RoleId       INT,
+    @AreaId       INT = NULL,
+    @ActorId      INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -104,20 +240,20 @@ BEGIN
         IF @FullName IS NULL OR LEN(@FullName) = 0 OR LEN(@FullName) > 100
             THROW 50400, N'El nombre completo es obligatorio y admite máximo 100 caracteres.', 1;
 
-        IF @Role IS NULL OR @Role NOT IN ('ADMIN', 'AGENT')
-            THROW 50400, N'El rol debe ser ADMIN o AGENT.', 1;
-
         -- Defensa en profundidad: solo se aceptan hashes bcrypt, nunca contraseñas en texto plano.
         IF @PasswordHash IS NULL OR @PasswordHash NOT LIKE '$2[aby]$[0-9][0-9]$%' OR LEN(@PasswordHash) <> 60
             THROW 50400, N'El hash de la contraseña no tiene un formato bcrypt válido.', 1;
 
+        EXEC dbo.usp_Users_ValidateRoleAndArea @RoleId, @AreaId, @ActorId;
+
         IF EXISTS (SELECT 1 FROM dbo.Users WHERE Username = @Username)
             THROW 50409, N'El nombre de usuario ya existe.', 1;
 
-        INSERT INTO dbo.Users (Username, PasswordHash, FullName, Role)
-        VALUES (@Username, @PasswordHash, @FullName, @Role);
+        INSERT INTO dbo.Users (Username, PasswordHash, FullName, RoleId, AreaId)
+        VALUES (@Username, @PasswordHash, @FullName, @RoleId, @AreaId);
 
-        SELECT UserId, Username, FullName, Role, IsActive, CreatedAt, PasswordChangedAt
+        SELECT UserId, Username, FullName, RoleId, RoleName, AreaId, AreaName,
+               IsActive, CreatedAt, PasswordChangedAt
         FROM dbo.vw_Users
         WHERE UserId = CAST(SCOPE_IDENTITY() AS INT);
     END TRY
@@ -131,12 +267,12 @@ BEGIN
 END;
 GO
 
-/* Edita nombre y rol. Un administrador no puede quitarse el rol a sí mismo ni dejar
-   el sistema sin administradores activos. */
+/* Edita nombre, rol y área. */
 CREATE OR ALTER PROCEDURE dbo.usp_Users_Update
     @UserId    INT,
     @FullName  NVARCHAR(200),
-    @Role      VARCHAR(20),
+    @RoleId    INT,
+    @AreaId    INT = NULL,
     @ChangedBy INT
 AS
 BEGIN
@@ -149,42 +285,40 @@ BEGIN
         IF @FullName IS NULL OR LEN(@FullName) = 0 OR LEN(@FullName) > 100
             THROW 50400, N'El nombre completo es obligatorio y admite máximo 100 caracteres.', 1;
 
-        IF @Role IS NULL OR @Role NOT IN ('ADMIN', 'AGENT')
-            THROW 50400, N'El rol debe ser ADMIN o AGENT.', 1;
-
-        DECLARE @CurrentRole VARCHAR(20), @IsActive BIT, @OtherActiveAdmins INT;
+        DECLARE @CurrentRoleId INT;
 
         BEGIN TRANSACTION;
 
-            SELECT @CurrentRole = Role, @IsActive = IsActive
+            SELECT @CurrentRoleId = RoleId
             FROM dbo.Users WITH (UPDLOCK, ROWLOCK)
             WHERE UserId = @UserId
               AND DeletedAt IS NULL;
 
-            IF @CurrentRole IS NULL
+            IF @CurrentRoleId IS NULL
                 THROW 50404, N'El usuario no existe.', 1;
 
-            IF @CurrentRole = 'ADMIN' AND @Role <> 'ADMIN'
+            EXEC dbo.usp_Users_AssertCanManage @UserId, @ChangedBy;
+
+            IF @RoleId <> @CurrentRoleId
             BEGIN
                 IF @UserId = @ChangedBy
-                    THROW 50409, N'No puedes quitarte a ti mismo el rol de administrador.', 1;
+                    THROW 50409, N'No puedes cambiar tu propio rol.', 1;
 
-                SELECT @OtherActiveAdmins = COUNT(*)
-                FROM dbo.Users WITH (UPDLOCK, HOLDLOCK)
-                WHERE Role = 'ADMIN' AND IsActive = 1 AND DeletedAt IS NULL AND UserId <> @UserId;
-
-                IF @IsActive = 1 AND @OtherActiveAdmins = 0
-                    THROW 50409, N'Debe quedar al menos un administrador activo.', 1;
+                EXEC dbo.usp_Users_AssertNotLastAdmin @UserId;
             END;
+
+            EXEC dbo.usp_Users_ValidateRoleAndArea @RoleId, @AreaId, @ChangedBy;
 
             UPDATE dbo.Users
             SET FullName = @FullName,
-                Role = @Role
+                RoleId = @RoleId,
+                AreaId = @AreaId
             WHERE UserId = @UserId;
 
         COMMIT TRANSACTION;
 
-        SELECT UserId, Username, FullName, Role, IsActive, CreatedAt, PasswordChangedAt
+        SELECT UserId, Username, FullName, RoleId, RoleName, AreaId, AreaName,
+               IsActive, CreatedAt, PasswordChangedAt
         FROM dbo.vw_Users
         WHERE UserId = @UserId;
     END TRY
@@ -211,30 +345,18 @@ BEGIN
         IF @IsActive IS NULL
             THROW 50400, N'Debes indicar si el usuario queda activo o inactivo.', 1;
 
-        DECLARE @Role VARCHAR(20), @OtherActiveAdmins INT;
-
         BEGIN TRANSACTION;
 
-            SELECT @Role = Role
-            FROM dbo.Users WITH (UPDLOCK, ROWLOCK)
-            WHERE UserId = @UserId
-              AND DeletedAt IS NULL;
-
-            IF @Role IS NULL
+            IF NOT EXISTS (SELECT 1 FROM dbo.Users WITH (UPDLOCK, ROWLOCK) WHERE UserId = @UserId AND DeletedAt IS NULL)
                 THROW 50404, N'El usuario no existe.', 1;
 
             IF @IsActive = 0 AND @UserId = @ChangedBy
                 THROW 50409, N'No puedes desactivar tu propio usuario.', 1;
 
-            IF @IsActive = 0 AND @Role = 'ADMIN'
-            BEGIN
-                SELECT @OtherActiveAdmins = COUNT(*)
-                FROM dbo.Users WITH (UPDLOCK, HOLDLOCK)
-                WHERE Role = 'ADMIN' AND IsActive = 1 AND DeletedAt IS NULL AND UserId <> @UserId;
+            EXEC dbo.usp_Users_AssertCanManage @UserId, @ChangedBy;
 
-                IF @OtherActiveAdmins = 0
-                    THROW 50409, N'Debe quedar al menos un administrador activo.', 1;
-            END;
+            IF @IsActive = 0
+                EXEC dbo.usp_Users_AssertNotLastAdmin @UserId;
 
             UPDATE dbo.Users
             SET IsActive = @IsActive
@@ -242,7 +364,8 @@ BEGIN
 
         COMMIT TRANSACTION;
 
-        SELECT UserId, Username, FullName, Role, IsActive, CreatedAt, PasswordChangedAt
+        SELECT UserId, Username, FullName, RoleId, RoleName, AreaId, AreaName,
+               IsActive, CreatedAt, PasswordChangedAt
         FROM dbo.vw_Users
         WHERE UserId = @UserId;
     END TRY
@@ -255,10 +378,12 @@ BEGIN
 END;
 GO
 
-/* Reemplaza el hash de la contraseña (cambio propio o restablecimiento por un administrador). */
+/* Reemplaza el hash de la contraseña: cambio propio (@ActorId NULL o el mismo usuario)
+   o restablecimiento por quien administra usuarios (sin escalada de privilegios). */
 CREATE OR ALTER PROCEDURE dbo.usp_Users_UpdatePassword
     @UserId       INT,
-    @PasswordHash VARCHAR(200)
+    @PasswordHash VARCHAR(200),
+    @ActorId      INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -267,6 +392,9 @@ BEGIN
     BEGIN TRY
         IF @PasswordHash IS NULL OR @PasswordHash NOT LIKE '$2[aby]$[0-9][0-9]$%' OR LEN(@PasswordHash) <> 60
             THROW 50400, N'El hash de la contraseña no tiene un formato bcrypt válido.', 1;
+
+        IF @ActorId IS NOT NULL AND @ActorId <> @UserId
+            EXEC dbo.usp_Users_AssertCanManage @UserId, @ActorId;
 
         UPDATE dbo.Users
         SET PasswordHash = @PasswordHash,
@@ -283,17 +411,24 @@ BEGIN
 END;
 GO
 
-/* Usuarios que pueden ser responsables de una tarea (activos y no eliminados). */
+/* Usuarios a los que el actor puede asignar tareas: todos los activos si ve todas las
+   áreas; si no, los activos de su área y él mismo. */
 CREATE OR ALTER PROCEDURE dbo.usp_Users_ListAssignable
+    @ActorId INT
 AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
     BEGIN TRY
-        SELECT UserId, Username, FullName, Role
+        DECLARE @ViewAll BIT = 0, @ActorAreaId INT = NULL;
+        SELECT @ViewAll = ViewAll, @ActorAreaId = AreaId
+        FROM dbo.tvf_UserAccess(@ActorId);
+
+        SELECT UserId, Username, FullName, AreaId, AreaName
         FROM dbo.vw_Users
         WHERE IsActive = 1
+          AND (@ViewAll = 1 OR UserId = @ActorId OR AreaId = @ActorAreaId)
         ORDER BY FullName, UserId;
     END TRY
     BEGIN CATCH
@@ -305,7 +440,7 @@ GO
 /* Eliminación lógica: el usuario deja de existir para la aplicación (no inicia sesión,
    no aparece en la administración ni como responsable), pero su nombre se conserva en
    las tareas que creó y en el historial (trazabilidad). Sus tareas abiertas quedan sin
-   asignar para que un administrador las reasigne. Devuelve cuántas se liberaron. */
+   asignar (y queda registrado) para reasignarlas. Devuelve cuántas se liberaron. */
 CREATE OR ALTER PROCEDURE dbo.usp_Users_Delete
     @UserId    INT,
     @ChangedBy INT
@@ -315,30 +450,18 @@ BEGIN
     SET XACT_ABORT ON;
 
     BEGIN TRY
-        DECLARE @Role VARCHAR(20), @IsActive BIT, @OtherActiveAdmins INT, @Unassigned INT;
+        DECLARE @Unassigned INT;
 
         BEGIN TRANSACTION;
 
-            SELECT @Role = Role, @IsActive = IsActive
-            FROM dbo.Users WITH (UPDLOCK, ROWLOCK)
-            WHERE UserId = @UserId
-              AND DeletedAt IS NULL;
-
-            IF @Role IS NULL
+            IF NOT EXISTS (SELECT 1 FROM dbo.Users WITH (UPDLOCK, ROWLOCK) WHERE UserId = @UserId AND DeletedAt IS NULL)
                 THROW 50404, N'El usuario no existe.', 1;
 
             IF @UserId = @ChangedBy
                 THROW 50409, N'No puedes eliminar tu propio usuario.', 1;
 
-            IF @Role = 'ADMIN' AND @IsActive = 1
-            BEGIN
-                SELECT @OtherActiveAdmins = COUNT(*)
-                FROM dbo.Users WITH (UPDLOCK, HOLDLOCK)
-                WHERE Role = 'ADMIN' AND IsActive = 1 AND DeletedAt IS NULL AND UserId <> @UserId;
-
-                IF @OtherActiveAdmins = 0
-                    THROW 50409, N'Debe quedar al menos un administrador activo.', 1;
-            END;
+            EXEC dbo.usp_Users_AssertCanManage @UserId, @ChangedBy;
+            EXEC dbo.usp_Users_AssertNotLastAdmin @UserId;
 
             DECLARE @Released TABLE (TaskId INT NOT NULL PRIMARY KEY);
 
@@ -370,31 +493,6 @@ BEGIN
         IF @@TRANCOUNT > 0
             ROLLBACK TRANSACTION;
 
-        THROW;
-    END CATCH;
-END;
-GO
-
-/* Estado de la sesión de un usuario: se consulta en cada petición autenticada.
-   Sin filas = usuario inactivo o eliminado (su token deja de valer de inmediato).
-   El rol vigente y la fecha del último cambio de contraseña permiten aplicar al
-   instante un cambio de rol y cerrar las sesiones abiertas tras cambiar la contraseña.
-   Busca por clave primaria: es un Clustered Index Seek de una fila. */
-CREATE OR ALTER PROCEDURE dbo.usp_Users_GetSessionState
-    @UserId INT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    SET XACT_ABORT ON;
-
-    BEGIN TRY
-        SELECT Role, PasswordChangedAt
-        FROM dbo.Users
-        WHERE UserId = @UserId
-          AND IsActive = 1
-          AND DeletedAt IS NULL;
-    END TRY
-    BEGIN CATCH
         THROW;
     END CATCH;
 END;

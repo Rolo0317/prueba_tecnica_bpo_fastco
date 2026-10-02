@@ -48,27 +48,13 @@ BEGIN
         Username     NVARCHAR(50)  NOT NULL CONSTRAINT UQ_Users_Username UNIQUE,
         PasswordHash VARCHAR(100)  NOT NULL,
         FullName     NVARCHAR(100) NOT NULL,
-        Role         VARCHAR(20)   NOT NULL CONSTRAINT DF_Users_Role DEFAULT ('AGENT'),
+        -- RoleId y AreaId se agregan en 02a_access_control.sql (Roles y Areas se crean ahí).
         IsActive     BIT           NOT NULL CONSTRAINT DF_Users_IsActive DEFAULT (1),
         CreatedAt    DATETIME2(3)  NOT NULL CONSTRAINT DF_Users_CreatedAt DEFAULT (SYSUTCDATETIME()),
         PasswordChangedAt DATETIME2(3) NULL,
         DeletedAt    DATETIME2(3)  NULL,
-        CONSTRAINT CK_Users_Username_NotBlank CHECK (LEN(TRIM(Username)) > 0),
-        CONSTRAINT CK_Users_Role CHECK (Role IN ('ADMIN', 'AGENT'))
+        CONSTRAINT CK_Users_Username_NotBlank CHECK (LEN(TRIM(Username)) > 0)
     );
-END;
-GO
-
-/* Migración para bases creadas antes de los roles: agrega las columnas que falten.
-   Los usuarios que ya existían tenían acceso completo, así que conservan ese acceso como ADMIN. */
-IF COL_LENGTH(N'dbo.Users', N'Role') IS NULL
-BEGIN
-    ALTER TABLE dbo.Users ADD Role VARCHAR(20) NOT NULL
-        CONSTRAINT DF_Users_Role DEFAULT ('AGENT') WITH VALUES;
-    -- Se ejecutan como SQL dinámico (texto fijo, sin parámetros) porque la columna aún no
-    -- existía cuando se compiló este lote.
-    EXEC sys.sp_executesql N'UPDATE dbo.Users SET Role = ''ADMIN'';';
-    EXEC sys.sp_executesql N'ALTER TABLE dbo.Users ADD CONSTRAINT CK_Users_Role CHECK (Role IN (''ADMIN'', ''AGENT''));';
 END;
 GO
 

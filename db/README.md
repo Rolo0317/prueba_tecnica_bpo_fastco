@@ -5,12 +5,15 @@
 | Script | Contenido |
 |---|---|
 | `01_database.sql` | Crea la base de datos y activa `READ_COMMITTED_SNAPSHOT` (lecturas sin bloqueos) |
-| `02_tables.sql` | `TaskStatuses`, `TaskStatusTransitions`, `Users`, `Tasks`, `TaskStatusHistory` |
+| `02_tables.sql` | `TaskStatuses`, `TaskStatusTransitions`, `Users`, `Tasks`, `TaskStatusHistory`, `TaskNotes`, `TaskAssignmentHistory` |
+| `02a_access_control.sql` | `Permissions` (catálogo fijo), `Roles`, `RolePermissions`, `Areas`; `Users.RoleId`, `Users.AreaId`, `Tasks.AreaId`; migración desde la columna de texto `Users.Role` |
 | `03_indexes.sql` | Índices justificados por las consultas reales |
-| `04_views.sql` | `vw_TaskDetails`: proyección única de una tarea (la reutilizan todos los SPs) |
+| `04_views.sql` | `tvf_UserAccess` (permisos efectivos de un usuario), `vw_TaskDetails`, `vw_Users` |
 | `05_procedures.sql` | Stored Procedures de tareas y estados |
-| `05_procedures_users.sql` | Stored Procedures de usuarios: login, administración y contraseñas |
+| `05_procedures_access.sql` | Permisos, roles y áreas |
+| `05_procedures_followup.sql` | Avances y línea de tiempo |
 | `05_procedures_stats.sql` | `usp_Tasks_Stats`: indicadores del panel |
+| `05_procedures_users.sql` | Stored Procedures de usuarios: login, sesión, administración y contraseñas |
 | `06_seed_catalogs.sql` | Estados y transiciones permitidas |
 | `07_security.sql` | Usuario de aplicación con mínimo privilegio (solo `EXECUTE`) |
 
@@ -20,43 +23,55 @@ Las variables `$(DB_NAME)`, `$(DB_APP_USER)` y `$(DB_APP_PASSWORD)` llegan desde
 ## Modelo
 
 ```
-TaskStatuses 1───* Tasks *───1 Users
-     │                │            │
-     └──* TaskStatusTransitions    │
-                      │            │
-                      └──* TaskStatusHistory *──┘
+Permissions *──* Roles 1───* Users *───1 Areas
+                              │  │          │
+TaskStatuses 1───* Tasks *────┘  │          │
+     │               │  └────────┼──────────┘ (Tasks.AreaId)
+     └──* TaskStatusTransitions  │
+                     ├──* TaskStatusHistory / TaskAssignmentHistory / TaskNotes
 ```
 
 - Las **transiciones permitidas** son datos (`TaskStatusTransitions`), no código: agregar una regla nueva no requiere tocar ningún procedimiento.
 - Cada creación y cambio de estado queda en `TaskStatusHistory` (quién, qué, cuándo), en la misma transacción.
+- **Roles configurables:** un rol es una combinación de permisos del catálogo. Roles del sistema con código
+  estable: `ADMIN` (Administrador, bloqueado, siempre con todos los permisos), `SUPERVISOR` y `COLLABORATOR`.
 
 ## Stored Procedures
 
 | Procedimiento | Transacción | Errores de negocio |
 |---|---|---|
-| `usp_Users_GetByUsername` / `usp_Users_GetCredentialsById` (solo activos) | — | — |
-| `usp_Users_List` (paginado) | — | 50400 |
-| `usp_Users_Create` (solo acepta hash bcrypt, rol `ADMIN`/`AGENT`) | — | 50400, 50409 |
-| `usp_Users_Update` / `usp_Users_SetActive` (siempre queda un admin activo) | ✅ | 50400, 50404, 50409 |
-| `usp_Users_UpdatePassword` | — | 50400, 50404 |
-| `usp_Tasks_Stats` (conteos por estado y vencimientos, por alcance) | — | — |
-| `usp_Tasks_Update` (datos y responsable; permisos por rol) | ✅ | 50400, 50403, 50404 |
-| `usp_Users_ListAssignable` / `usp_Users_Delete` (eliminación lógica) | ✅ | 50404, 50409 |
+| `usp_TaskStatuses_List` (incluye transiciones permitidas) | — | — |
+| `usp_Tasks_List` (filtros por estado y área + alcance + paginación + `@TotalCount OUTPUT`) | — | 50400 |
+| `usp_Tasks_Create` (tarea + historial; área y responsable según permisos) | ✅ | 50400, 50403 |
+| `usp_Tasks_Update` (datos, responsable y área según permisos) | ✅ | 50400, 50403, 50404 |
+| `usp_Tasks_ChangeStatus` (bloqueo de fila + validación + historial) | ✅ | 50400, 50404, 50409 |
+| `usp_Tasks_Stats` (conteos por estado y vencimientos, por alcance y área) | — | — |
 | `usp_TaskNotes_Create` (avance; solo inserción) | — | 50400, 50404 |
 | `usp_Tasks_Timeline` (creación, estados, responsables y avances) | — | 50404 |
+| `usp_Users_GetByUsername` / `usp_Users_GetCredentialsById` (solo activos) | — | — |
+| `usp_Users_GetSessionState` (rol, área y permisos vigentes; se consulta en cada petición) | — | — |
+| `usp_Users_List` (paginado) | — | 50400 |
+| `usp_Users_Create` (solo hash bcrypt; rol y área válidos; sin escalada) | — | 50400, 50403, 50409 |
+| `usp_Users_Update` / `usp_Users_SetActive` (sin escalada; siempre queda un Administrador activo) | ✅ | 50400, 50403, 50404, 50409 |
+| `usp_Users_UpdatePassword` (restablecer exige poder gestionar al usuario) | — | 50400, 50403, 50404 |
+| `usp_Users_ListAssignable` (todos o los de su área) / `usp_Users_Delete` (eliminación lógica) | ✅ | 50403, 50404, 50409 |
+| `usp_Permissions_List` / `usp_Roles_List` / `usp_Areas_List` | — | — |
+| `usp_Roles_Create` / `usp_Roles_Update` / `usp_Roles_Delete` | ✅ | 50400, 50403, 50404, 50409 |
+| `usp_Areas_Save` (crear o editar) | — | 50400, 50404, 50409 |
 
 **Seguimiento:** `TaskNotes` (avances) y `TaskAssignmentHistory` (cada asignación, reasignación o liberación,
 incluida la que ocurre al eliminar un usuario) son tablas de solo inserción. Junto con `TaskStatusHistory`
 forman la línea de tiempo de cada tarea.
 
-**Visibilidad:** los SPs de tareas reciben `@ViewerId` (NULL = administrador). Un agente solo ve, cambia de
-estado y cuenta las tareas asignadas a él o creadas por él; una tarea ajena responde 50404. Índices de apoyo:
+**Visibilidad:** todos los SPs de tareas reciben quién opera y resuelven sus permisos con `tvf_UserAccess`:
+`TASKS_VIEW_ALL` ve todo, `TASKS_VIEW_AREA` ve su área, y cualquiera ve lo asignado a él o creado por él.
+Una tarea no visible responde 50404. Índices de apoyo: `IX_Tasks_AreaId_StatusId_CreatedAt`,
 `IX_Tasks_AssignedTo_StatusId_CreatedAt` e `IX_Tasks_CreatedBy_StatusId_CreatedAt`.
-Detalle de las decisiones en [ADR 0002](../docs/adr/0002-control-de-acceso-y-eliminacion-de-usuarios.md).
-| `usp_TaskStatuses_List` (incluye transiciones permitidas) | — | — |
-| `usp_Tasks_List` (filtro + paginación + `@TotalCount OUTPUT`) | — | 50400 |
-| `usp_Tasks_Create` (tarea + historial) | ✅ | 50400 |
-| `usp_Tasks_ChangeStatus` (bloqueo de fila + validación + historial) | ✅ | 50400, 50404, 50409 |
+
+**Sin escalada de privilegios** (`tvf_RolePermissionsNotHeld`): nadie asigna un rol ni otorga permisos que
+no tiene, ni gestiona a un usuario con más permisos, ni edita su propio rol. Decisiones en
+[ADR 0002](../docs/adr/0002-control-de-acceso-y-eliminacion-de-usuarios.md) y
+[ADR 0003](../docs/adr/0003-roles-configurables-y-areas.md).
 
 Todos usan `SET NOCOUNT ON`, `SET XACT_ABORT ON` y `TRY/CATCH` con `ROLLBACK` + `THROW`.
 
@@ -71,14 +86,14 @@ ORDER BY CreatedAt DESC, TaskId DESC
 OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
 ```
 
-**Índice:** `IX_Tasks_StatusId_CreatedAt (StatusId, CreatedAt DESC, TaskId DESC)`.
+**Índice:** `IX_Tasks_StatusId_CreatedAt (StatusId, CreatedAt DESC, TaskId DESC) INCLUDE (AreaId, AssignedTo, CreatedBy)` (las columnas incluidas son las del filtro de visibilidad por permisos).
 
 Medido con **200 000 tareas** (página 50, 10 filas por página, estado `COMPLETED`):
 
 | | Operador del plan | Lecturas lógicas |
 |---|---|---|
-| Con el índice | `Index Seek … ORDERED FORWARD` (sin Sort) | **7** |
-| Sin el índice (forzando el clustered) | Scan completo + Sort | **2 368** |
+| Con el índice | `Index Seek … ORDERED FORWARD` (sin Sort) | **8** |
+| Sin el índice (forzando el clustered) | Scan completo + Sort | **2 135** |
 
 **Cómo verificar que SQL Server usa el índice:**
 1. Plan de ejecución real (en SSMS, Ctrl+M) o `SET STATISTICS XML ON`: debe aparecer `Index Seek` sobre `IX_Tasks_StatusId_CreatedAt` y ningún operador `Sort`.

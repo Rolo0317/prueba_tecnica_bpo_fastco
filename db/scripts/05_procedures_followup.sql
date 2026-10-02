@@ -1,8 +1,8 @@
 /* =============================================================================
    05_procedures_followup.sql
    Seguimiento de una tarea: avances (notas) y línea de tiempo unificada.
-   Misma visibilidad que el resto de tareas: @ViewerId NULL = administrador;
-   un id = agente (solo tareas asignadas a él o creadas por él). Tarea no visible → 50404.
+   Misma visibilidad que el resto de tareas (permisos de dbo.tvf_UserAccess):
+   tarea no visible → 50404.
    ============================================================================= */
 USE [$(DB_NAME)];
 GO
@@ -11,8 +11,7 @@ GO
 CREATE OR ALTER PROCEDURE dbo.usp_TaskNotes_Create
     @TaskId    INT,
     @Body      NVARCHAR(2000),
-    @CreatedBy INT,
-    @ViewerId  INT = NULL
+    @CreatedBy INT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -24,13 +23,18 @@ BEGIN
         IF @Body IS NULL OR LEN(@Body) = 0 OR LEN(@Body) > 1000
             THROW 50400, N'El avance es obligatorio y admite máximo 1000 caracteres.', 1;
 
-        IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @CreatedBy AND IsActive = 1 AND DeletedAt IS NULL)
+        DECLARE @Found BIT = 0, @ViewAll BIT = 0, @ViewArea BIT = 0, @ViewerAreaId INT = NULL;
+        SELECT @Found = 1, @ViewAll = ViewAll, @ViewArea = ViewArea, @ViewerAreaId = AreaId
+        FROM dbo.tvf_UserAccess(@CreatedBy);
+
+        IF @Found = 0
             THROW 50400, N'El usuario no es válido.', 1;
 
         IF NOT EXISTS (
             SELECT 1 FROM dbo.Tasks
             WHERE TaskId = @TaskId
-              AND (@ViewerId IS NULL OR AssignedTo = @ViewerId OR CreatedBy = @ViewerId)
+              AND (@ViewAll = 1 OR (@ViewArea = 1 AND AreaId = @ViewerAreaId)
+                   OR AssignedTo = @CreatedBy OR CreatedBy = @CreatedBy)
         )
             THROW 50404, N'La tarea no existe.', 1;
 
@@ -52,17 +56,22 @@ GO
    en orden cronológico. Cada fuente se lee con su índice (TaskId, fecha). */
 CREATE OR ALTER PROCEDURE dbo.usp_Tasks_Timeline
     @TaskId   INT,
-    @ViewerId INT = NULL
+    @ViewerId INT
 AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
     BEGIN TRY
+        DECLARE @ViewAll BIT = 0, @ViewArea BIT = 0, @ViewerAreaId INT = NULL;
+        SELECT @ViewAll = ViewAll, @ViewArea = ViewArea, @ViewerAreaId = AreaId
+        FROM dbo.tvf_UserAccess(@ViewerId);
+
         IF NOT EXISTS (
             SELECT 1 FROM dbo.Tasks
             WHERE TaskId = @TaskId
-              AND (@ViewerId IS NULL OR AssignedTo = @ViewerId OR CreatedBy = @ViewerId)
+              AND (@ViewAll = 1 OR (@ViewArea = 1 AND AreaId = @ViewerAreaId)
+                   OR AssignedTo = @ViewerId OR CreatedBy = @ViewerId)
         )
             THROW 50404, N'La tarea no existe.', 1;
 
