@@ -50,7 +50,7 @@ capas, con pruebas, sin cambiar ese núcleo (cada decisión está en `docs/adr/`
 | README con pasos en Linux y respuestas | [Sección 1](#1-ejecución-en-linux) y [sección 9](#9-respuestas-a-las-preguntas) |
 
 **Más allá del enunciado:** asignación y seguimiento de tareas, áreas y roles configurables, indicadores,
-captcha y límite de intentos, recuperación de contraseña por correo, datos demo realistas, CI y 309 pruebas.
+captcha y límite de intentos, recuperación de contraseña por correo, datos demo realistas, CI y 311 pruebas.
 
 ## Contenido
 
@@ -423,7 +423,7 @@ docker compose up -d --wait backend
 |---|---|---|
 | Backend: unitarias + integración HTTP (supertest) | 135 | `cd backend && npm ci && npm test` |
 | Frontend: unitarias (composables, cliente HTTP, store, router, componentes) | 108 | `cd frontend && npm ci && npm test` |
-| End-to-end (Playwright, escritorio y móvil) contra `docker compose` | 66 | ver abajo |
+| End-to-end (Playwright, escritorio y móvil) contra `docker compose` | 68 | ver abajo |
 
 ```bash
 # Las pruebas hacen logins fallidos a propósito: se sube el límite anti fuerza bruta solo para esta corrida.
@@ -523,6 +523,8 @@ que asignan variables: sin ella, el filtro de permisos no se simplifica y el con
 - Orquestación (Kubernetes o un servicio administrado) con *readiness/liveness probes*, límites de CPU/memoria y escalado horizontal de la API (ya es *stateless*).
 
 **Producto**
+- Filtro de tareas por rango de fechas o por mes (creación y fecha límite), con el mismo patrón de
+  filtros en la URL y un índice por `DueDate` para las consultas de vencimiento.
 - Áreas jerárquicas (sub-áreas), personas en varias áreas y permisos por área (p. ej. supervisor de dos equipos):
   el modelo lo admite con una tabla `UserAreas` y la misma función `tvf_UserAccess` como único punto a cambiar.
 - Adjuntos en los avances (con antivirus y almacenamiento de objetos), notificaciones de vencimiento (correo o Teams) e indicadores por persona, área y periodo.

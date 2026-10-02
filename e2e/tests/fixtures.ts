@@ -12,14 +12,29 @@ export async function submitLogin(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Ingresar' }).click();
 }
 
+/**
+ * Escribe usuario y contraseña cuando el formulario ya está listo y confirma cada valor:
+ * si la vista aún se está montando, el texto podía terminar en el campo equivocado.
+ */
+export async function fillCredentials(page: Page, username: string, password: string) {
+  await page.getByRole('button', { name: 'Ingresar' }).waitFor();
+  const user = page.getByLabel('Usuario');
+  const pass = page.getByLabel('Contraseña', { exact: true });
+  await expect(async () => {
+    await user.fill(username);
+    await pass.fill(password);
+    await expect(user).toHaveValue(username, { timeout: 1000 });
+    await expect(pass).toHaveValue(password, { timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
+}
+
 export const credentials = {
   username: process.env.SEED_ADMIN_USERNAME ?? '',
   password: process.env.SEED_ADMIN_PASSWORD ?? '',
 };
 
 export async function login(page: Page, password = credentials.password): Promise<void> {
-  await page.getByLabel('Usuario').fill(credentials.username);
-  await page.getByLabel('Contraseña', { exact: true }).fill(password);
+  await fillCredentials(page, credentials.username, password);
   await submitLogin(page);
 }
 
@@ -40,8 +55,7 @@ export const unique = () => Date.now().toString(36);
 
 export async function loginAs(page: Page, username: string, password: string): Promise<void> {
   await page.goto('/login');
-  await page.getByLabel('Usuario').fill(username);
-  await page.getByLabel('Contraseña', { exact: true }).fill(password);
+  await fillCredentials(page, username, password);
   await submitLogin(page);
 }
 
@@ -60,8 +74,7 @@ export async function createAgent(page: Page, username: string, password: string
   const loginButton = page.getByRole('button', { name: 'Ingresar' });
   await expect(loginButton.or(page.getByRole('heading', { name: 'Usuarios' }))).toBeVisible();
   if (await loginButton.isVisible()) {
-    await page.getByLabel('Usuario').fill(credentials.username);
-    await page.getByLabel('Contraseña', { exact: true }).fill(credentials.password);
+    await fillCredentials(page, credentials.username, credentials.password);
     await submitLogin(page);
   }
   await expect(page).toHaveURL(/\/users/);

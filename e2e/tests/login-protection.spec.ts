@@ -1,5 +1,14 @@
 import type { APIRequestContext, Page } from '@playwright/test';
-import { credentials, expect, logout, passCaptcha, submitLogin, test, unique } from './fixtures';
+import {
+  credentials,
+  expect,
+  fillCredentials,
+  logout,
+  passCaptcha,
+  submitLogin,
+  test,
+  unique,
+} from './fixtures';
 
 const MAIL_API = process.env.MAIL_API_URL ?? `http://localhost:${process.env.MAIL_UI_PORT ?? '8025'}/api/v1`;
 
@@ -27,8 +36,7 @@ async function resetLinkFor(request: APIRequestContext, to: string): Promise<str
 
 async function adminCreatesUserWithEmail(page: Page, username: string, email: string, password: string) {
   await page.goto('/login');
-  await page.getByLabel('Usuario').fill(credentials.username);
-  await page.getByLabel('Contraseña', { exact: true }).fill(credentials.password);
+  await fillCredentials(page, credentials.username, credentials.password);
   await submitLogin(page);
   await expect(page).toHaveURL(/\/tasks/);
   await page.goto('/users');
@@ -46,8 +54,7 @@ async function adminCreatesUserWithEmail(page: Page, username: string, email: st
 test.describe('Protección del login', () => {
   test('sin marcar "No soy un robot" no se envía el login', async ({ page }) => {
     await page.goto('/login');
-    await page.getByLabel('Usuario').fill(credentials.username);
-    await page.getByLabel('Contraseña', { exact: true }).fill(credentials.password);
+    await fillCredentials(page, credentials.username, credentials.password);
     await page.getByRole('button', { name: 'Ingresar' }).click();
 
     await expect(page.getByText('Confirma que no eres un robot.')).toBeVisible();
@@ -56,8 +63,7 @@ test.describe('Protección del login', () => {
 
   test('una contraseña incorrecta informa cuántos intentos quedan', async ({ page }) => {
     await page.goto('/login');
-    await page.getByLabel('Usuario').fill(credentials.username);
-    await page.getByLabel('Contraseña', { exact: true }).fill('incorrecta-de-prueba');
+    await fillCredentials(page, credentials.username, 'incorrecta-de-prueba');
     await submitLogin(page);
 
     await expect(page.getByRole('alert').filter({ hasText: /Te quedan? \d+ intentos?/ })).toBeVisible();
@@ -65,6 +71,20 @@ test.describe('Protección del login', () => {
 });
 
 test.describe('¿Olvidaste tu contraseña?', () => {
+  test('una cuenta inexistente recibe el mismo mensaje neutral (no revela qué cuentas existen)', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+    await page.getByRole('button', { name: '¿Olvidaste tu contraseña?' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Usuario o correo').fill(`nadie.${unique()}@fastco.test`);
+    await passCaptcha(dialog);
+    await dialog.getByRole('button', { name: 'Solicitar restablecimiento' }).click();
+
+    await expect(dialog.getByRole('status')).toContainText(/Si la cuenta existe/);
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
+  });
+
   test('llega un enlace al correo y con él se crea una contraseña nueva', async ({ page, request }) => {
     const id = unique();
     const username = `e2e.reset${id}`;
@@ -88,8 +108,7 @@ test.describe('¿Olvidaste tu contraseña?', () => {
     await expect(page.getByText(/tu contraseña quedó actualizada/)).toBeVisible();
 
     await page.getByRole('link', { name: 'Ir a iniciar sesión' }).click();
-    await page.getByLabel('Usuario').fill(username);
-    await page.getByLabel('Contraseña', { exact: true }).fill('Nueva-E2e-2026x');
+    await fillCredentials(page, username, 'Nueva-E2e-2026x');
     await submitLogin(page);
     await expect(page).toHaveURL(/\/tasks/);
   });
