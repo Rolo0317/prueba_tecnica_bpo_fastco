@@ -295,7 +295,7 @@ El login de la interfaz pide el captcha "No soy un robot" (lo resuelve el navega
 desde la terminal se desactiva solo durante la prueba; la interfaz lo detecta y deja de pedirlo:
 
 ```bash
-AUTH_CAPTCHA=false docker compose up -d backend
+AUTH_CAPTCHA=false docker compose up -d --wait backend
 
 BASE=http://localhost:8080/api/v1
 TOKEN=$(curl -s -H 'Content-Type: application/json' \
@@ -314,7 +314,7 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
   -d '{"status":"IN_PROGRESS"}' $BASE/tasks/$ID/status
 
 # Volver a activar el captcha
-docker compose up -d backend
+docker compose up -d --wait backend
 ```
 
 ---
