@@ -106,22 +106,27 @@ BEGIN
         (
             SELECT t.TaskId, t.AreaId, t.StatusId, t.CreatedAt, t.DueDate, s.IsFinal
             FROM dbo.Tasks AS t
-            INNER JOIN dbo.TaskStatuses AS s ON s.StatusId = t.StatusId
+            -- HASH: el catálogo (4 filas) se lee una vez y se cruza en memoria, en lugar de
+            -- una búsqueda por cada tarea (con millones de tareas, millones de búsquedas).
+            INNER HASH JOIN dbo.TaskStatuses AS s ON s.StatusId = t.StatusId
             WHERE @ViewAll = 1 OR (@ViewArea = 1 AND t.AreaId = @ViewerAreaId)
                OR t.AssignedTo = @ViewerId OR t.CreatedBy = @ViewerId
         ),
         Closed AS
         (
-            -- Momento en que quedó completada (última transición a COMPLETED, vía IX_TaskStatusHistory_TaskId_ChangedAt).
-            SELECT v.TaskId, DATEDIFF(MINUTE, v.CreatedAt, c.CompletedAt) AS Minutes
-            FROM Visible AS v
-            CROSS APPLY (
-                SELECT MAX(h.ChangedAt) AS CompletedAt
-                FROM dbo.TaskStatusHistory AS h
-                WHERE h.TaskId = v.TaskId AND h.ToStatusId = @CompletedId
-            ) AS c
+            -- Cierres dentro del periodo: se parte del historial (IX_TaskStatusHistory_ToStatusId_ChangedAt)
+            -- y no de cada tarea completada; con millones de tareas solo se leen los cierres recientes.
+            -- MAX(ChangedAt) entre los cierres del periodo = último cierre de la tarea.
+            SELECT v.TaskId, DATEDIFF(MINUTE, v.CreatedAt, h.CompletedAt) AS Minutes
+            FROM (
+                SELECT TaskId, MAX(ChangedAt) AS CompletedAt
+                FROM dbo.TaskStatusHistory
+                WHERE ToStatusId = @CompletedId
+                  AND ChangedAt >= @Since
+                GROUP BY TaskId
+            ) AS h
+            INNER JOIN Visible AS v ON v.TaskId = h.TaskId
             WHERE v.StatusId = @CompletedId
-              AND c.CompletedAt >= @Since
         )
         SELECT
             v.AreaId,

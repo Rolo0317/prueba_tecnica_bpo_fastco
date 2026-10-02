@@ -383,6 +383,13 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
   flex: 1 1 170px;
   max-width: 260px;
 }
+@media (max-width: 599px) {
+  .priority-filter,
+  .area-filter {
+    flex-basis: 100%;
+    max-width: none;
+  }
+}
 .priority-dot {
   display: inline-block;
   width: 10px;

@@ -108,6 +108,19 @@ BEGIN
 END;
 GO
 
+/* IX_TaskStatusHistory_ToStatusId_ChangedAt: "desempeño por área" (usp_Tasks_StatsByArea) busca los
+   cierres de un periodo: Index Seek por estado destino y rango de fechas, sin recorrer el historial. */
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = N'IX_TaskStatusHistory_ToStatusId_ChangedAt' AND object_id = OBJECT_ID(N'dbo.TaskStatusHistory')
+)
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_TaskStatusHistory_ToStatusId_ChangedAt
+        ON dbo.TaskStatusHistory (ToStatusId, ChangedAt)
+        INCLUDE (TaskId);
+END;
+GO
+
 /* Línea de tiempo de una tarea: avances y reasignaciones en orden cronológico.
    También soportan las FK hacia Tasks. */
 IF NOT EXISTS (
