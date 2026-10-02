@@ -1,0 +1,111 @@
+# Integración continua: calidad (lint, tipos, pruebas) del backend y del frontend en paralelo
+# y, si pasan, pruebas end-to-end contra el entorno completo levantado con docker compose.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (lint, tipos y pruebas)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=high
+
+  frontend:
+    name: Frontend (lint, tipos, pruebas y build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+
+  e2e:
+    name: End-to-end (docker compose + Playwright)
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar el entorno desde la plantilla
+        run: |
+          cp .env.example .env
+          # Secretos solo para esta corrida (nunca en el repositorio).
+          sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -base64 48)|" .env
+          # Las pruebas hacen logins fallidos a propósito: se sube el límite solo aquí.
+          echo "AUTH_MAX_FAILED_ATTEMPTS=500" >> .env
+
+      - name: Levantar todo con un solo comando
+        run: docker compose up --build -d
+
+      - name: Esperar a que la aplicación esté sana
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8080/health && exit 0
+            sleep 5
+          done
+          docker compose ps
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Pruebas end-to-end
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+
+      - name: Logs de los servicios (si algo falla)
+        if: failure()
+        run: docker compose logs --no-color > compose-logs.txt
+
+      - name: Guardar evidencias
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-evidencias
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+            compose-logs.txt
+          retention-days: 7
