@@ -16,6 +16,7 @@
 | `05_procedures_users.sql` | Stored Procedures de usuarios: login, sesión, administración y contraseñas |
 | `06_seed_catalogs.sql` | Estados y transiciones permitidas |
 | `07_security.sql` | Usuario de aplicación con mínimo privilegio (solo `EXECUTE`) |
+| `08_demo_data.sql` | Datos de un BPO en operación (17 áreas, 9 roles, 55 personas, 460 tareas en 4 meses con historial, avances y reasignaciones). Solo con `SEED_DEMO_DATA=true` y una base sin tareas; determinístico; cuentas bloqueadas hasta que la API les asigna `SEED_DEMO_PASSWORD` |
 
 `db/init/run-scripts.sh` los ejecuta con `sqlcmd -b` (se detiene ante el primer error). Lo usa el contenedor `db-init` de Docker Compose.
 Las variables `$(DB_NAME)`, `$(DB_APP_USER)` y `$(DB_APP_PASSWORD)` llegan desde `.env`.
@@ -58,6 +59,10 @@ TaskStatuses 1───* Tasks *────┘  │          │
 | `usp_Permissions_List` / `usp_Roles_List` / `usp_Areas_List` | — | — |
 | `usp_Roles_Create` / `usp_Roles_Update` / `usp_Roles_Delete` | ✅ | 50400, 50403, 50404, 50409 |
 | `usp_Areas_Save` (crear o editar) | — | 50400, 50404, 50409 |
+| `usp_Tasks_StatsByArea` (abiertas, vencidas, cerradas en el periodo y tiempo promedio de cierre por área) | — | 50400 |
+| `usp_PasswordResets_Request` (usuario o correo: hash del token del enlace o solicitud para administración) | ✅ | 50400 |
+| `usp_PasswordResets_Consume` (enlace vigente y sin usar → contraseña nueva, cierra sesiones) | ✅ | 50400 |
+| `usp_Users_ActivateDemoAccounts` (solo cuentas con el hash de bloqueo) | — | 50400 |
 
 **Seguimiento:** `TaskNotes` (avances) y `TaskAssignmentHistory` (cada asignación, reasignación o liberación,
 incluida la que ocurre al eliminar un usuario) son tablas de solo inserción. Junto con `TaskStatusHistory`
@@ -72,6 +77,11 @@ Una tarea no visible responde 50404. Índices de apoyo: `IX_Tasks_AreaId_StatusI
 no tiene, ni gestiona a un usuario con más permisos, ni edita su propio rol. Decisiones en
 [ADR 0002](../docs/adr/0002-control-de-acceso-y-eliminacion-de-usuarios.md) y
 [ADR 0003](../docs/adr/0003-roles-configurables-y-areas.md).
+
+**Recuperación de contraseña:** `PasswordResetTokens` guarda solo el **hash SHA-256** del token del enlace
+(vence y es de un solo uso) y `PasswordResetRequests` las solicitudes de cuentas sin correo, que atiende
+administración. `usp_Users_List` admite búsqueda literal (los comodines de `LIKE` se escapan) y filtros.
+Detalle en [ADR 0004](../docs/adr/0004-proteccion-del-login-y-recuperacion-de-contrasena.md).
 
 Todos usan `SET NOCOUNT ON`, `SET XACT_ABORT ON` y `TRY/CATCH` con `ROLLBACK` + `THROW`.
 

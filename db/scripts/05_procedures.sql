@@ -103,6 +103,8 @@ GO
 CREATE OR ALTER PROCEDURE dbo.usp_Tasks_List
     @StatusCode VARCHAR(20) = NULL,
     @AreaId     INT         = NULL,
+    @Search     NVARCHAR(100) = NULL,
+    @Priority   TINYINT     = NULL,
     @Page       INT         = 1,
     @PageSize   INT         = 10,
     @ViewerId   INT,
@@ -131,6 +133,14 @@ BEGIN
         SELECT @ViewAll = ViewAll, @ViewArea = ViewArea, @ViewerAreaId = AreaId
         FROM dbo.tvf_UserAccess(@ViewerId);
 
+        IF @Priority IS NOT NULL AND @Priority NOT BETWEEN 1 AND 3
+            THROW 50400, N'La prioridad debe ser 1 (alta), 2 (media) o 3 (baja).', 1;
+
+        -- Búsqueda por título (en producción con millones de filas: índice full-text).
+        DECLARE @Pattern NVARCHAR(400) = CASE WHEN NULLIF(TRIM(@Search), N'') IS NULL THEN NULL
+            -- Búsqueda literal: se escapan los comodines de LIKE.
+            ELSE N'%' + REPLACE(REPLACE(REPLACE(TRIM(@Search), N'[', N'[[]'), N'%', N'[%]'), N'_', N'[_]') + N'%' END;
+
         DECLARE @Offset BIGINT = CAST(@Page - 1 AS BIGINT) * @PageSize;
 
         -- El conteo va a una tabla variable y no a "SELECT @TotalCount = COUNT(*)": SQL Server
@@ -144,6 +154,8 @@ BEGIN
         FROM dbo.Tasks
         WHERE (@StatusId IS NULL OR StatusId = @StatusId)
           AND (@AreaId IS NULL OR AreaId = @AreaId)
+          AND (@Priority IS NULL OR Priority = @Priority)
+          AND (@Pattern IS NULL OR Title LIKE @Pattern)
           AND (@ViewAll = 1 OR (@ViewArea = 1 AND AreaId = @ViewerAreaId)
                OR AssignedTo = @ViewerId OR CreatedBy = @ViewerId)
         OPTION (RECOMPILE);
@@ -156,6 +168,8 @@ BEGIN
             FROM dbo.Tasks
             WHERE (@StatusId IS NULL OR StatusId = @StatusId)
               AND (@AreaId IS NULL OR AreaId = @AreaId)
+          AND (@Priority IS NULL OR Priority = @Priority)
+          AND (@Pattern IS NULL OR Title LIKE @Pattern)
               AND (@ViewAll = 1 OR (@ViewArea = 1 AND AreaId = @ViewerAreaId)
                    OR AssignedTo = @ViewerId OR CreatedBy = @ViewerId)
             ORDER BY CreatedAt DESC, TaskId DESC

@@ -73,3 +73,72 @@ BEGIN
     END CATCH;
 END;
 GO
+
+/* -----------------------------------------------------------------------------
+   Desempeño por área (indicador de gestión): por cada área con tareas visibles,
+   cuántas están abiertas, cuántas vencidas, cuántas se cerraron en los últimos
+   @Days días y el tiempo promedio de cierre (de la creación a "Completada", según
+   el historial). Mismo alcance por permisos que el resto (dbo.tvf_UserAccess).
+   AreaId NULL = tareas sin área.
+   ----------------------------------------------------------------------------- */
+CREATE OR ALTER PROCEDURE dbo.usp_Tasks_StatsByArea
+    @Today    DATE = NULL,
+    @ViewerId INT,
+    @Days     INT  = 30
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        IF @Days IS NULL OR @Days NOT BETWEEN 1 AND 365
+            THROW 50400, N'El periodo debe estar entre 1 y 365 días.', 1;
+
+        SET @Today = ISNULL(@Today, CAST(SYSUTCDATETIME() AS DATE));
+        DECLARE @Since DATETIME2(3) = DATEADD(DAY, -@Days, CAST(@Today AS DATETIME2(3)));
+        DECLARE @CompletedId TINYINT = (SELECT StatusId FROM dbo.TaskStatuses WHERE Code = 'COMPLETED');
+
+        DECLARE @ViewAll BIT = 0, @ViewArea BIT = 0, @ViewerAreaId INT = NULL;
+        SELECT @ViewAll = ViewAll, @ViewArea = ViewArea, @ViewerAreaId = AreaId
+        FROM dbo.tvf_UserAccess(@ViewerId);
+
+        WITH Visible AS
+        (
+            SELECT t.TaskId, t.AreaId, t.StatusId, t.CreatedAt, t.DueDate, s.IsFinal
+            FROM dbo.Tasks AS t
+            INNER JOIN dbo.TaskStatuses AS s ON s.StatusId = t.StatusId
+            WHERE @ViewAll = 1 OR (@ViewArea = 1 AND t.AreaId = @ViewerAreaId)
+               OR t.AssignedTo = @ViewerId OR t.CreatedBy = @ViewerId
+        ),
+        Closed AS
+        (
+            -- Momento en que quedó completada (última transición a COMPLETED, vía IX_TaskStatusHistory_TaskId_ChangedAt).
+            SELECT v.TaskId, DATEDIFF(MINUTE, v.CreatedAt, c.CompletedAt) AS Minutes
+            FROM Visible AS v
+            CROSS APPLY (
+                SELECT MAX(h.ChangedAt) AS CompletedAt
+                FROM dbo.TaskStatusHistory AS h
+                WHERE h.TaskId = v.TaskId AND h.ToStatusId = @CompletedId
+            ) AS c
+            WHERE v.StatusId = @CompletedId
+              AND c.CompletedAt >= @Since
+        )
+        SELECT
+            v.AreaId,
+            a.Name AS AreaName,
+            SUM(CASE WHEN v.IsFinal = 0 THEN 1 ELSE 0 END) AS OpenCount,
+            SUM(CASE WHEN v.IsFinal = 0 AND v.DueDate < @Today THEN 1 ELSE 0 END) AS OverdueCount,
+            COUNT(c.TaskId) AS ClosedCount,
+            CAST(AVG(CAST(c.Minutes AS DECIMAL(18, 2))) / 60 AS DECIMAL(10, 1)) AS AvgResolutionHours
+        FROM Visible AS v
+        LEFT JOIN Closed AS c ON c.TaskId = v.TaskId
+        LEFT JOIN dbo.Areas AS a ON a.AreaId = v.AreaId
+        GROUP BY v.AreaId, a.Name
+        ORDER BY OverdueCount DESC, OpenCount DESC, a.Name
+        OPTION (RECOMPILE);
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH;
+END;
+GO

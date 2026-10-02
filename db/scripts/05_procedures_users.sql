@@ -186,10 +186,17 @@ BEGIN
 END;
 GO
 
+/* Listado con búsqueda (nombre o usuario) y filtros opcionales por rol, área, estado
+   ('ACTIVE' | 'INACTIVE') y solicitudes de contraseña pendientes. */
 CREATE OR ALTER PROCEDURE dbo.usp_Users_List
-    @Page       INT = 1,
-    @PageSize   INT = 10,
-    @TotalCount INT OUTPUT
+    @Page         INT = 1,
+    @PageSize     INT = 10,
+    @Search       NVARCHAR(100) = NULL,
+    @RoleId       INT = NULL,
+    @AreaId       INT = NULL,
+    @Status       VARCHAR(10) = NULL,
+    @PendingReset BIT = 0,
+    @TotalCount   INT OUTPUT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -202,13 +209,32 @@ BEGIN
         IF @PageSize IS NULL OR @PageSize NOT BETWEEN 1 AND 100
             THROW 50400, N'El tamaño de página debe estar entre 1 y 100.', 1;
 
-        SELECT @TotalCount = COUNT(*) FROM dbo.vw_Users;
+        IF @Status IS NOT NULL AND @Status NOT IN ('ACTIVE', 'INACTIVE')
+            THROW 50400, N'El estado debe ser ACTIVE o INACTIVE.', 1;
 
-        SELECT UserId, Username, FullName, RoleId, RoleName, AreaId, AreaName,
-               IsActive, CreatedAt, PasswordChangedAt
+        DECLARE @Pattern NVARCHAR(400) = CASE WHEN NULLIF(TRIM(@Search), N'') IS NULL THEN NULL
+            -- Búsqueda literal: se escapan los comodines de LIKE.
+            ELSE N'%' + REPLACE(REPLACE(REPLACE(TRIM(@Search), N'[', N'[[]'), N'%', N'[%]'), N'_', N'[_]') + N'%' END;
+
+        SELECT UserId, Username, FullName, Email, RoleId, RoleName, RoleCode, AreaId, AreaName,
+               IsActive, CreatedAt, PasswordChangedAt, PasswordResetRequestedAt
+        INTO #Filtered
         FROM dbo.vw_Users
-        -- Activos primero; dentro de ellos, administradores (pocos) y luego los más recientes.
-        ORDER BY IsActive DESC, CASE RoleCode WHEN 'ADMIN' THEN 0 ELSE 1 END, CreatedAt DESC, UserId DESC
+        WHERE (@Pattern IS NULL OR FullName LIKE @Pattern OR Username LIKE @Pattern OR Email LIKE @Pattern)
+          AND (@RoleId IS NULL OR RoleId = @RoleId)
+          AND (@AreaId IS NULL OR AreaId = @AreaId)
+          AND (@Status IS NULL OR IsActive = CASE @Status WHEN 'ACTIVE' THEN 1 ELSE 0 END)
+          AND (@PendingReset = 0 OR PasswordResetRequestedAt IS NOT NULL)
+        OPTION (RECOMPILE);
+
+        SET @TotalCount = @@ROWCOUNT;
+
+        -- Solicitudes pendientes primero (requieren atención); luego activos, administradores y los más recientes.
+        SELECT UserId, Username, FullName, Email, RoleId, RoleName, AreaId, AreaName,
+               IsActive, CreatedAt, PasswordChangedAt, PasswordResetRequestedAt
+        FROM #Filtered
+        ORDER BY CASE WHEN PasswordResetRequestedAt IS NULL THEN 1 ELSE 0 END,
+                 IsActive DESC, CASE RoleCode WHEN 'ADMIN' THEN 0 ELSE 1 END, CreatedAt DESC, UserId DESC
         OFFSET CAST(@Page - 1 AS BIGINT) * @PageSize ROWS FETCH NEXT @PageSize ROWS ONLY;
     END TRY
     BEGIN CATCH
@@ -224,7 +250,8 @@ CREATE OR ALTER PROCEDURE dbo.usp_Users_Create
     @FullName     NVARCHAR(200),
     @RoleId       INT,
     @AreaId       INT = NULL,
-    @ActorId      INT = NULL
+    @ActorId      INT = NULL,
+    @Email        NVARCHAR(254) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -244,36 +271,46 @@ BEGIN
         IF @PasswordHash IS NULL OR @PasswordHash NOT LIKE '$2[aby]$[0-9][0-9]$%' OR LEN(@PasswordHash) <> 60
             THROW 50400, N'El hash de la contraseña no tiene un formato bcrypt válido.', 1;
 
+        SET @Email = NULLIF(LOWER(TRIM(@Email)), N'');
+
+        IF @Email IS NOT NULL AND (LEN(@Email) > 254 OR @Email NOT LIKE N'_%@_%._%' OR @Email LIKE N'% %')
+            THROW 50400, N'El correo no tiene un formato válido.', 1;
+
+        IF @Email IS NOT NULL AND EXISTS (SELECT 1 FROM dbo.Users WHERE Email = @Email AND UserId <> -1)
+            THROW 50409, N'El correo ya está registrado en otro usuario.', 1;
+
         EXEC dbo.usp_Users_ValidateRoleAndArea @RoleId, @AreaId, @ActorId;
 
         IF EXISTS (SELECT 1 FROM dbo.Users WHERE Username = @Username)
             THROW 50409, N'El nombre de usuario ya existe.', 1;
 
-        INSERT INTO dbo.Users (Username, PasswordHash, FullName, RoleId, AreaId)
-        VALUES (@Username, @PasswordHash, @FullName, @RoleId, @AreaId);
+        INSERT INTO dbo.Users (Username, PasswordHash, FullName, RoleId, AreaId, Email)
+        VALUES (@Username, @PasswordHash, @FullName, @RoleId, @AreaId, @Email);
 
-        SELECT UserId, Username, FullName, RoleId, RoleName, AreaId, AreaName,
+        SELECT UserId, Username, FullName, Email, RoleId, RoleName, AreaId, AreaName,
                IsActive, CreatedAt, PasswordChangedAt
         FROM dbo.vw_Users
         WHERE UserId = CAST(SCOPE_IDENTITY() AS INT);
     END TRY
     BEGIN CATCH
-        -- Dos registros simultáneos con el mismo usuario: la restricción UNIQUE gana la carrera.
+        -- Dos registros simultáneos con el mismo usuario o correo: la restricción UNIQUE gana la carrera.
         IF ERROR_NUMBER() IN (2601, 2627)
-            THROW 50409, N'El nombre de usuario ya existe.', 1;
+            THROW 50409, N'El nombre de usuario o el correo ya existen.', 1;
 
         THROW;
     END CATCH;
 END;
 GO
 
-/* Edita nombre, rol y área. */
+/* Edita nombre, rol, área y correo (@ChangeEmail = 0 conserva el correo actual). */
 CREATE OR ALTER PROCEDURE dbo.usp_Users_Update
-    @UserId    INT,
-    @FullName  NVARCHAR(200),
-    @RoleId    INT,
-    @AreaId    INT = NULL,
-    @ChangedBy INT
+    @UserId      INT,
+    @FullName    NVARCHAR(200),
+    @RoleId      INT,
+    @AreaId      INT = NULL,
+    @ChangedBy   INT,
+    @Email       NVARCHAR(254) = NULL,
+    @ChangeEmail BIT = 0
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -284,6 +321,14 @@ BEGIN
 
         IF @FullName IS NULL OR LEN(@FullName) = 0 OR LEN(@FullName) > 100
             THROW 50400, N'El nombre completo es obligatorio y admite máximo 100 caracteres.', 1;
+
+        SET @Email = NULLIF(LOWER(TRIM(@Email)), N'');
+
+        IF @Email IS NOT NULL AND (LEN(@Email) > 254 OR @Email NOT LIKE N'_%@_%._%' OR @Email LIKE N'% %')
+            THROW 50400, N'El correo no tiene un formato válido.', 1;
+
+        IF @Email IS NOT NULL AND EXISTS (SELECT 1 FROM dbo.Users WHERE Email = @Email AND UserId <> @UserId)
+            THROW 50409, N'El correo ya está registrado en otro usuario.', 1;
 
         DECLARE @CurrentRoleId INT;
 
@@ -312,12 +357,13 @@ BEGIN
             UPDATE dbo.Users
             SET FullName = @FullName,
                 RoleId = @RoleId,
-                AreaId = @AreaId
+                AreaId = @AreaId,
+                Email = CASE WHEN @ChangeEmail = 1 THEN @Email ELSE Email END
             WHERE UserId = @UserId;
 
         COMMIT TRANSACTION;
 
-        SELECT UserId, Username, FullName, RoleId, RoleName, AreaId, AreaName,
+        SELECT UserId, Username, FullName, Email, RoleId, RoleName, AreaId, AreaName,
                IsActive, CreatedAt, PasswordChangedAt
         FROM dbo.vw_Users
         WHERE UserId = @UserId;
@@ -364,7 +410,7 @@ BEGIN
 
         COMMIT TRANSACTION;
 
-        SELECT UserId, Username, FullName, RoleId, RoleName, AreaId, AreaName,
+        SELECT UserId, Username, FullName, Email, RoleId, RoleName, AreaId, AreaName,
                IsActive, CreatedAt, PasswordChangedAt
         FROM dbo.vw_Users
         WHERE UserId = @UserId;
@@ -404,6 +450,13 @@ BEGIN
 
         IF @@ROWCOUNT = 0
             THROW 50404, N'El usuario no existe.', 1;
+
+        -- Una contraseña nueva atiende las solicitudes de restablecimiento pendientes.
+        UPDATE dbo.PasswordResetRequests
+        SET ResolvedAt = SYSUTCDATETIME(),
+            ResolvedBy = ISNULL(@ActorId, @UserId)
+        WHERE UserId = @UserId
+          AND ResolvedAt IS NULL;
     END TRY
     BEGIN CATCH
         THROW;
@@ -430,6 +483,146 @@ BEGIN
         WHERE IsActive = 1
           AND (@ViewAll = 1 OR UserId = @ActorId OR AreaId = @ActorAreaId)
         ORDER BY FullName, UserId;
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* "¿Olvidaste tu contraseña?" (usuario o correo). Responde igual exista o no la cuenta.
+   - Con correo registrado: guarda el hash del token del enlace (anula los anteriores) y
+     devuelve correo y nombre para que la API envíe el enlace.
+   - Sin correo: deja una solicitud (una abierta por persona) para quien administra usuarios. */
+CREATE OR ALTER PROCEDURE dbo.usp_PasswordResets_Request
+    @Identifier NVARCHAR(254),
+    @TokenHash  CHAR(64),
+    @ExpiresAt  DATETIME2(3)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        IF @TokenHash IS NULL OR @TokenHash LIKE '%[^0-9a-f]%' OR LEN(@TokenHash) <> 64
+            THROW 50400, N'El token no tiene un formato válido.', 1;
+
+        SET @Identifier = TRIM(@Identifier);
+        DECLARE @UserId INT, @Email NVARCHAR(254), @FullName NVARCHAR(100);
+
+        SELECT @UserId = UserId, @Email = Email, @FullName = FullName
+        FROM dbo.Users
+        WHERE (Username = @Identifier OR Email = LOWER(@Identifier))
+          AND IsActive = 1
+          AND DeletedAt IS NULL;
+
+        IF @UserId IS NULL RETURN;
+
+        BEGIN TRANSACTION;
+
+            IF @Email IS NOT NULL
+            BEGIN
+                -- Solo el último enlace sirve.
+                UPDATE dbo.PasswordResetTokens
+                SET ExpiresAt = SYSUTCDATETIME()
+                WHERE UserId = @UserId AND UsedAt IS NULL AND ExpiresAt > SYSUTCDATETIME();
+
+                INSERT INTO dbo.PasswordResetTokens (TokenHash, UserId, ExpiresAt)
+                VALUES (@TokenHash, @UserId, @ExpiresAt);
+            END
+            ELSE IF NOT EXISTS (
+                SELECT 1 FROM dbo.PasswordResetRequests WITH (UPDLOCK, HOLDLOCK)
+                WHERE UserId = @UserId AND ResolvedAt IS NULL
+            )
+                INSERT INTO dbo.PasswordResetRequests (UserId) VALUES (@UserId);
+
+        COMMIT TRANSACTION;
+
+        IF @Email IS NOT NULL
+            SELECT @Email AS Email, @FullName AS FullName;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* Usa el enlace: valida el token (vigente, sin usar, usuario activo), asigna la nueva
+   contraseña, invalida el enlace y cierra las sesiones abiertas (PasswordChangedAt). */
+CREATE OR ALTER PROCEDURE dbo.usp_PasswordResets_Consume
+    @TokenHash    CHAR(64),
+    @PasswordHash VARCHAR(200)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        IF @PasswordHash IS NULL OR @PasswordHash NOT LIKE '$2[aby]$[0-9][0-9]$%' OR LEN(@PasswordHash) <> 60
+            THROW 50400, N'El hash de la contraseña no tiene un formato bcrypt válido.', 1;
+
+        BEGIN TRANSACTION;
+
+            DECLARE @UserId INT;
+            SELECT @UserId = t.UserId
+            FROM dbo.PasswordResetTokens AS t WITH (UPDLOCK, ROWLOCK)
+            INNER JOIN dbo.Users AS u ON u.UserId = t.UserId
+            WHERE t.TokenHash = @TokenHash
+              AND t.UsedAt IS NULL
+              AND t.ExpiresAt > SYSUTCDATETIME()
+              AND u.IsActive = 1
+              AND u.DeletedAt IS NULL;
+
+            IF @UserId IS NULL
+                THROW 50400, N'El enlace no es válido o ya expiró. Solicita uno nuevo.', 1;
+
+            UPDATE dbo.PasswordResetTokens SET UsedAt = SYSUTCDATETIME() WHERE TokenHash = @TokenHash;
+
+            UPDATE dbo.Users
+            SET PasswordHash = @PasswordHash,
+                PasswordChangedAt = SYSUTCDATETIME()
+            WHERE UserId = @UserId;
+
+            UPDATE dbo.PasswordResetRequests
+            SET ResolvedAt = SYSUTCDATETIME(), ResolvedBy = @UserId
+            WHERE UserId = @UserId AND ResolvedAt IS NULL;
+
+        COMMIT TRANSACTION;
+
+        SELECT Username FROM dbo.Users WHERE UserId = @UserId;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* Activa las cuentas de demostración (08_demo_data.sql): les asigna la contraseña definida
+   en SEED_DEMO_PASSWORD. Solo toca cuentas que siguen con el hash de bloqueo, así que nunca
+   cambia la contraseña de una cuenta ya activada ni de una cuenta real. */
+CREATE OR ALTER PROCEDURE dbo.usp_Users_ActivateDemoAccounts
+    @PasswordHash VARCHAR(200)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    BEGIN TRY
+        IF @PasswordHash IS NULL OR @PasswordHash NOT LIKE '$2[aby]$[0-9][0-9]$%' OR LEN(@PasswordHash) <> 60
+            THROW 50400, N'El hash de la contraseña no tiene un formato bcrypt válido.', 1;
+
+        UPDATE dbo.Users
+        SET PasswordHash = @PasswordHash
+        WHERE PasswordHash = '$2b$12$' + REPLICATE('.', 53)
+          AND DeletedAt IS NULL;
+
+        SELECT @@ROWCOUNT AS Activated;
     END TRY
     BEGIN CATCH
         THROW;

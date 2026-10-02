@@ -68,12 +68,19 @@ GO
 CREATE OR ALTER VIEW dbo.vw_Users
 AS
 SELECT
-    u.UserId, u.Username, u.FullName,
+    u.UserId, u.Username, u.FullName, u.Email,
     u.RoleId, r.Name AS RoleName, r.Code AS RoleCode,
     u.AreaId, ar.Name AS AreaName,
-    u.IsActive, u.CreatedAt, u.PasswordChangedAt
+    u.IsActive, u.CreatedAt, u.PasswordChangedAt,
+    pr.RequestedAt AS PasswordResetRequestedAt
 FROM dbo.Users AS u
 INNER JOIN dbo.Roles AS r ON r.RoleId = u.RoleId
 LEFT  JOIN dbo.Areas AS ar ON ar.AreaId = u.AreaId
+-- Solicitud de restablecimiento pendiente (IX_PasswordResetRequests_Open).
+OUTER APPLY (
+    SELECT MAX(RequestedAt) AS RequestedAt
+    FROM dbo.PasswordResetRequests
+    WHERE UserId = u.UserId AND ResolvedAt IS NULL
+) AS pr
 WHERE u.DeletedAt IS NULL;
 GO

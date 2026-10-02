@@ -162,3 +162,52 @@ BEGIN
     );
 END;
 GO
+
+/* Solicitudes de restablecimiento de contraseña ("¿Olvidaste tu contraseña?").
+   Las atiende quien administra usuarios; se resuelven al asignar una contraseña nueva. */
+IF OBJECT_ID(N'dbo.PasswordResetRequests', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.PasswordResetRequests
+    (
+        RequestId   BIGINT IDENTITY (1, 1) NOT NULL CONSTRAINT PK_PasswordResetRequests PRIMARY KEY,
+        UserId      INT          NOT NULL
+            CONSTRAINT FK_PasswordResetRequests_User REFERENCES dbo.Users (UserId),
+        RequestedAt DATETIME2(3) NOT NULL CONSTRAINT DF_PasswordResetRequests_RequestedAt DEFAULT (SYSUTCDATETIME()),
+        ResolvedAt  DATETIME2(3) NULL,
+        ResolvedBy  INT          NULL
+            CONSTRAINT FK_PasswordResetRequests_ResolvedBy REFERENCES dbo.Users (UserId)
+    );
+END;
+GO
+
+/* Correo del usuario (opcional): permite restablecer la contraseña por enlace desde el login. */
+IF COL_LENGTH(N'dbo.Users', N'Email') IS NULL
+    ALTER TABLE dbo.Users ADD Email NVARCHAR(254) NULL;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Users_Email' AND object_id = OBJECT_ID(N'dbo.Users'))
+    CREATE UNIQUE NONCLUSTERED INDEX UX_Users_Email ON dbo.Users (Email) WHERE Email IS NOT NULL;
+GO
+
+/* Enlaces de restablecimiento: solo se guarda el hash SHA-256 del token (nunca el token),
+   vencen y se pueden usar una sola vez. */
+IF OBJECT_ID(N'dbo.PasswordResetTokens', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.PasswordResetTokens
+    (
+        TokenHash CHAR(64)     NOT NULL CONSTRAINT PK_PasswordResetTokens PRIMARY KEY,
+        UserId    INT          NOT NULL
+            CONSTRAINT FK_PasswordResetTokens_User REFERENCES dbo.Users (UserId),
+        CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_PasswordResetTokens_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        ExpiresAt DATETIME2(3) NOT NULL,
+        UsedAt    DATETIME2(3) NULL
+    );
+END;
+GO
+
+/* Solicitudes abiertas por usuario (listado de usuarios y "una abierta por persona"). */
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_PasswordResetRequests_Open' AND object_id = OBJECT_ID(N'dbo.PasswordResetRequests'))
+    CREATE NONCLUSTERED INDEX IX_PasswordResetRequests_Open
+        ON dbo.PasswordResetRequests (UserId) INCLUDE (RequestedAt)
+        WHERE ResolvedAt IS NULL;
+GO
