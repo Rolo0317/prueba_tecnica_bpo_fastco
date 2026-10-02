@@ -500,7 +500,11 @@ que asignan variables: sin ella, el filtro de permisos no se simplifica y el con
 4. **Archivado y particionado por fecha.** Particionar `Tasks` y sobre todo `TaskStatusHistory` (que crece varias veces más rápido) por `CreatedAt`/`ChangedAt`, y mover lo antiguo a tablas de archivo con *partition switching* (operación de metadatos, sin bloquear). El historial antiguo puede ir en **columnstore** para reportes.
 5. **Mantenimiento y monitoreo:** actualización de estadísticas, reorganizar/reconstruir índices según fragmentación, *fill factor* adecuado, Query Store activo con alertas por regresión de planes.
 6. **Separar lectura de escritura:** reportes y exportaciones contra una réplica de solo lectura (Always On *readable secondary*), y caché del catálogo de estados en la API.
-7. **Si se agrega búsqueda por texto,** usar un índice *full-text* en lugar de `LIKE '%texto%'`.
+7. **Búsqueda por texto con índice *full-text*.** La búsqueda por título usa hoy `LIKE '%texto%'` (suficiente con miles de
+   tareas); con millones pasaría a `CONTAINS` sobre un índice full-text, que no recorre la tabla.
+8. **Indicadores sin recorrer la tabla.** El desempeño por área ya parte del historial filtrado por periodo
+   (`IX_TaskStatusHistory_ToStatusId_ChangedAt`, de 1 052 a 44 lecturas); a esa escala, los conteos por área y estado
+   saldrían de una vista indexada o de una tabla de resumen actualizada por lotes.
 
 ### 3. ¿Qué agregarías o cambiarías para llevar esta aplicación a producción?
 
@@ -518,7 +522,7 @@ que asignan variables: sin ella, el filtro de permisos no se simplifica y el con
 - La imagen ya está fijada por *digest* (SQL Server 2022 CU27); en producción, edición con licencia (no Developer) y un proceso para aplicar cada CU nuevo tras probarlo.
 
 **Operación**
-- CI/CD: lint, pruebas unitarias, de integración y E2E, build de imágenes firmadas y despliegue gradual (*blue/green* o *canary*) con *rollback* automático.
+- El CI ya existe (GitHub Actions: lint, tipos, pruebas, auditoría y E2E con `docker compose`); faltaría el CD: build de imágenes firmadas, publicación en un registro y despliegue gradual (*blue/green* o *canary*) con *rollback* automático.
 - Observabilidad: logs centralizados (ELK, Loki o Azure Monitor), métricas (Prometheus/Grafana: latencia, errores, uso del pool de conexiones) y trazas con OpenTelemetry, con alertas.
 - Orquestación (Kubernetes o un servicio administrado) con *readiness/liveness probes*, límites de CPU/memoria y escalado horizontal de la API (ya es *stateless*).
 
