@@ -39,6 +39,7 @@ services:
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
       DB_APP_USER: ${DB_APP_USER:?Define DB_APP_USER en .env}
       DB_APP_PASSWORD: ${DB_APP_PASSWORD:?Define DB_APP_PASSWORD en .env}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
     volumes:
       - ./db:/db:ro
     depends_on:
@@ -71,16 +72,37 @@ services:
       SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:?Define SEED_ADMIN_USERNAME en .env}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?Define SEED_ADMIN_PASSWORD en .env}
       SEED_ADMIN_FULL_NAME: ${SEED_ADMIN_FULL_NAME:-Administrador}
-      SEED_SAMPLE_TASKS: ${SEED_SAMPLE_TASKS:-false}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_DEMO_PASSWORD: ${SEED_DEMO_PASSWORD:-}
+      AUTH_CAPTCHA: ${AUTH_CAPTCHA:-true}
+      # Correo para "¿Olvidaste tu contraseña?". Por defecto, el servidor de pruebas (mail).
+      SMTP_HOST: ${SMTP_HOST:-mail}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-Gestor de Tareas <no-responder@fastco.test>}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:8080}
     depends_on:
       db-init:
         condition: service_completed_successfully
+      mail:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:3000/health"]
       interval: 10s
       timeout: 3s
       retries: 6
       start_period: 15s
+    restart: unless-stopped
+
+  mail:
+    # Servidor de correo de pruebas (Mailpit): captura los correos que envía la app, no los
+    # entrega a nadie. Bandeja en http://localhost:8025, publicada solo en la máquina local.
+    # En producción se reemplaza por el SMTP corporativo con SMTP_HOST / SMTP_PORT / SMTP_USER.
+    image: axllent/mailpit:v1.27@sha256:e22dce5b36f93c77082e204a3942fb6b283b7896e057458400a4c88344c3df68
+    ports:
+      - "127.0.0.1:${MAIL_UI_PORT:-8025}:8025"
     restart: unless-stopped
 
   frontend:
