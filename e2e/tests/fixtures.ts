@@ -55,7 +55,11 @@ export async function logout(page: Page): Promise<void> {
 export async function createAgent(page: Page, username: string, password: string): Promise<void> {
   // Funciona con o sin sesión de administrador ya iniciada.
   await page.goto('/users');
-  if (page.url().includes('/login')) {
+  // El router redirige al login de forma asíncrona: se espera a que aparezca una de las dos
+  // pantallas en lugar de leer la URL justo después de navegar (carrera en máquinas lentas).
+  const loginButton = page.getByRole('button', { name: 'Ingresar' });
+  await expect(loginButton.or(page.getByRole('heading', { name: 'Usuarios' }))).toBeVisible();
+  if (await loginButton.isVisible()) {
     await page.getByLabel('Usuario').fill(credentials.username);
     await page.getByLabel('Contraseña', { exact: true }).fill(credentials.password);
     await submitLogin(page);
