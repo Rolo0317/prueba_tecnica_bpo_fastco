@@ -1,5 +1,7 @@
 # Gestor de Tareas Operativas
 
+[![CI](https://github.com/Rolo0317/prueba_tecnica_bpo_fastco/actions/workflows/ci.yml/badge.svg)](https://github.com/Rolo0317/prueba_tecnica_bpo_fastco/actions/workflows/ci.yml)
+
 Aplicación fullstack para que **cualquier área o equipo** (operaciones, TI, talento humano, finanzas, calidad…)
 gestione sus tareas de forma ordenada: los usuarios inician sesión, ven las tareas con filtro por estado y
 paginación, crean tareas nuevas y cambian su estado.
@@ -7,7 +9,9 @@ Cada cambio queda registrado en un historial de auditoría. Las tareas pertenece
 responsables**. El acceso es **configurable**: los roles se arman con permisos (ver todas las tareas, las del
 área, editar, asignar, administrar usuarios, áreas o roles) y a cada usuario se le asigna un rol y un área.
 Cada tarea tiene un **seguimiento**: línea de tiempo con avances, cambios de estado y de responsable. Incluye
-panel de indicadores (por área), cambio de contraseña propio y modo claro/oscuro.
+panel de indicadores (por área, con tiempo promedio de cierre), buscadores y filtros, login protegido
+(captcha propio "No soy un robot" y límite de intentos visible), recuperación de contraseña por correo y
+modo claro/oscuro. Arranca con **datos de un BPO en operación** (17 áreas, 55 personas, ~4 meses de tareas).
 
 **Stack:** Vue 3 (Composition API) + Vuetify · Node.js + Express + TypeScript · SQL Server 2022 · Docker Compose · Linux
 
@@ -67,21 +71,49 @@ Abrir **http://localhost:8080** e iniciar sesión con el usuario demo definido e
 
 El primer arranque tarda 1–2 minutos (descarga de imágenes y arranque de SQL Server).
 
+### Datos de demostración (un BPO en operación)
+
+Con `SEED_DEMO_DATA=true` (valor de la plantilla), la base nace con 17 áreas reales de un contact center
+(Operaciones, Back Office, Calidad, Formación, WFM, Innovación, Cartera, Retención, Experiencia del Cliente…),
+roles configurados (Gerente de operaciones, Supervisor, Analista de calidad, Formador, Analista WFM, Agente…),
+55 personas y 460 tareas de los últimos 4 meses con su historial completo: asignaciones, reasignaciones,
+756 avances, cierres y cancelaciones con tiempos creíbles por área. Los clientes y campañas son ficticios.
+
+Todas las cuentas demo usan la contraseña `SEED_DEMO_PASSWORD` (en la plantilla: `cambiar_Demo2026`).
+Sin esa variable quedan bloqueadas: ninguna contraseña está escrita en el repositorio.
+
+| Usuario | Rol · área | Qué permite ver |
+|---|---|---|
+| `sandra.mejia` | Gerente de operaciones | Todas las áreas: ve, edita y asigna |
+| `laura.gomez` | Supervisor · Calidad | Las tareas de Calidad y su equipo |
+| `alejandro.franco` | Líder de innovación · Innovación | Todas las áreas; asigna proyectos transversales |
+| `camila.vargas` | Analista de calidad | Todas las áreas (solo consulta) |
+| `claudia.hoyos` | Gestor de talento humano | Administra usuarios, sin poder crear administradores |
+| `kevin.zapata` | Agente · Operaciones | Solo lo asignado a él y lo que crea |
+
+### Correo de pruebas (recuperar contraseña)
+
+"¿Olvidaste tu contraseña?" envía un enlace de un solo uso. En local, los correos llegan a **Mailpit**
+(servidor de pruebas incluido en el compose): **http://localhost:8025**. En producción se configura el SMTP
+corporativo con `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` y `SMTP_PASSWORD`.
+
 ### Qué ocurre al ejecutar `docker compose up`
 
 ```
-db (SQL Server) ──healthy──▶ db-init (crea BD, tablas, índices, SPs, catálogos y usuario de app; termina)
+db (SQL Server) ──healthy──▶ db-init (crea BD, tablas, índices, SPs, catálogos, datos demo y usuario de app)
                                   │ completed_successfully
                                   ▼
-                             backend (API) ──healthy──▶ frontend (nginx :8080)
+            mail (Mailpit) ──▶ backend (API) ──healthy──▶ frontend (nginx :8080)
 ```
 
 1. **db**: SQL Server 2022 con volumen persistente y healthcheck.
 2. **db-init**: ejecuta en orden los scripts de `db/scripts` con `sqlcmd`. Son **idempotentes**: se ejecutan en cada arranque sin duplicar nada.
-3. **backend**: la API se conecta con un **usuario de mínimo privilegio** (nunca SA) y crea el usuario demo (contraseña con bcrypt) y 12 tareas de ejemplo si la tabla está vacía (`SEED_SAMPLE_TASKS`).
-4. **frontend**: nginx sirve la aplicación y hace de proxy de `/api` hacia la API.
+3. **backend**: la API se conecta con un **usuario de mínimo privilegio** (nunca SA), crea el administrador (contraseña con bcrypt) y activa las cuentas demo con `SEED_DEMO_PASSWORD`.
+4. **mail**: Mailpit, servidor de correo de pruebas (solo en la máquina local).
+5. **frontend**: nginx sirve la aplicación y hace de proxy de `/api` hacia la API.
 
-Solo se publica el puerto del frontend: la base de datos y la API quedan en la red interna de Docker.
+Solo se publican el frontend (8080) y la bandeja de Mailpit (8025, solo en `127.0.0.1`): la base de datos y la API
+quedan en la red interna de Docker.
 
 ### Comandos útiles
 
@@ -132,8 +164,9 @@ routes → controller → service → repository → Stored Procedure
 | View | Solo presentación | `components/TaskTable.vue` |
 
 Las decisiones y sus alternativas están en [docs/adr/0001](docs/adr/0001-arquitectura-general.md),
-[docs/adr/0002](docs/adr/0002-control-de-acceso-y-eliminacion-de-usuarios.md) y
-[docs/adr/0003](docs/adr/0003-roles-configurables-y-areas.md).
+[docs/adr/0002](docs/adr/0002-control-de-acceso-y-eliminacion-de-usuarios.md),
+[docs/adr/0003](docs/adr/0003-roles-configurables-y-areas.md) y
+[docs/adr/0004](docs/adr/0004-proteccion-del-login-y-recuperacion-de-contrasena.md).
 
 ### Áreas, roles y permisos
 
@@ -223,8 +256,11 @@ Base: `/api/v1`. Todas las rutas de tareas requieren `Authorization: Bearer <tok
 
 | Método | Ruta | Éxito | Errores |
 |---|---|---|---|
-| `POST` | `/auth/login` | 200 `{ token, tokenType, expiresIn, user }` | 400 · 401 · 429 |
-| `GET` | `/tasks?status=&areaId=&page=&pageSize=` | 200 `{ data, pagination }` | 400 · 401 |
+| `GET` | `/auth/captcha` (desafío "No soy un robot") | 200 `{ enabled, challenge, salt, maxNumber, signature }` | — |
+| `POST` | `/auth/login` `{ username, password, captcha }` | 200 `{ token, tokenType, expiresIn, user }` | 400 · 401 (`meta.attemptsRemaining`) · 429 (`meta.retryAfterSeconds`) |
+| `POST` | `/auth/password-reset-requests` `{ username, captcha }` (usuario o correo) | 202 (misma respuesta exista o no la cuenta) | 400 · 429 |
+| `POST` | `/auth/password-resets` `{ token, newPassword }` (enlace del correo) | 204 | 400 · 429 |
+| `GET` | `/tasks?status=&areaId=&priority=&search=&page=&pageSize=` | 200 `{ data, pagination }` | 400 · 401 |
 | `POST` | `/tasks` `{ title, description?, priority, dueDate?, assignedTo?, areaId? }` | 201 + cabecera `Location` | 400 · 401 · 403 |
 | `PATCH` | `/tasks/:id` (editar; `assignedTo` con `TASKS_ASSIGN`, `areaId` con `TASKS_VIEW_ALL`) | 200 | 400 · 401 · 403 · 404 |
 | `PATCH` | `/tasks/:id/status` | 200 | 400 · 401 · 404 · 409 |
@@ -234,7 +270,7 @@ Base: `/api/v1`. Todas las rutas de tareas requieren `Authorization: Bearer <tok
 | `GET` | `/task-statuses` | 200 | 401 |
 | `GET` | `/account/me` (rol, área y permisos vigentes) | 200 | 401 |
 | `PUT` | `/account/password` (cualquier rol) | 200 sesión nueva `{ token, … }` (las demás quedan cerradas) | 400 · 401 · 429 |
-| `GET` | `/users?page=&pageSize=` (`USERS_MANAGE`) | 200 | 401 · 403 |
+| `GET` | `/users?search=&roleId=&areaId=&status=&pendingReset=&page=&pageSize=` (`USERS_MANAGE`) | 200 | 401 · 403 |
 | `POST` | `/users` `{ username, fullName, roleId, areaId?, password }` (`USERS_MANAGE`) | 201 | 400 · 403 · 409 |
 | `GET` | `/users/assignable` (`TASKS_ASSIGN`; todos o los de su área) | 200 | 401 · 403 |
 | `DELETE` | `/users/:id` (`USERS_MANAGE`, eliminación lógica) | 200 `{ unassignedTasks }` | 403 · 404 · 409 |
@@ -298,7 +334,14 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
 - **Modo claro / oscuro:** botón en la barra y en el login; recuerda la elección y, si no hay, usa la del sistema.
   El tema oscuro ajusta los colores de marca para mantener contraste AA.
 - **Estados visibles:** esqueleto de carga, barra de progreso al recargar, error con botón *Reintentar*, estado vacío con acción, botones con *loading* y avisos de confirmación.
-- **Filtros y paginación en la URL** (`/tasks?status=PENDING&page=2`): se pueden compartir y sobreviven a una recarga.
+- **Buscadores y filtros:** tareas por título, estado, prioridad y área (en la URL: `/tasks?q=llamada&priority=HIGH&page=2`,
+  se pueden compartir y sobreviven a una recarga); usuarios por nombre, usuario o correo, rol, área, estado y
+  solicitudes de contraseña pendientes; áreas por nombre y estado. Los buscadores esperan a que se deje de
+  escribir (*debounce*) para no enviar una petición por tecla.
+- **Prioridad con semáforo:** rojo (alta), ámbar (media), verde (baja), con ícono, texto y una guía de qué significa cada una.
+- **Desempeño por área:** abiertas, vencidas, cerradas en 30 días y tiempo promedio de cierre; clic en un área para filtrar.
+- **Login:** captcha "No soy un robot", intentos restantes ("Te quedan 3 intentos") y bloqueo temporal con cuenta
+  regresiva; "¿Olvidaste tu contraseña?" con enlace por correo y página para crear la contraseña nueva.
 - **Accesibilidad:** cada estado se muestra con ícono + texto (no solo color), `aria-label` en botones de ícono, `aria-pressed` en el filtro, enlace "Saltar al contenido", foco gestionado al cambiar de página y en errores de formulario, contraste AA, respeto a `prefers-reduced-motion`.
 - **Rendimiento:** vistas con carga diferida, íconos SVG con *tree-shaking*, fuente alojada localmente, imágenes WebP.
 - **Animación de marca** en el login: SVG + CSS, sin librerías.
@@ -314,7 +357,9 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
 | Consultas siempre parametrizadas (solo SPs con parámetros tipados, sin SQL concatenado) | `procedure-executor.ts` |
 | Contraseñas con bcrypt; la BD rechaza cualquier valor que no sea un hash bcrypt | `password-hasher.ts`, `usp_Users_Create` |
 | JWT con algoritmo fijo (HS256), emisor, audiencia y expiración | `token.service.ts` |
-| Login: mismo mensaje y tiempo de respuesta si el usuario no existe; *rate limit* de intentos fallidos | `auth.service.ts`, `auth.routes.ts` |
+| Login: mismo mensaje y tiempo de respuesta si el usuario no existe; *rate limit* de intentos fallidos con los intentos restantes y el tiempo de bloqueo visibles | `auth.service.ts`, `rate-limit.ts` |
+| **Captcha propio por prueba de trabajo** (como ALTCHA): el navegador resuelve un SHA-256 (~1 s), el desafío va firmado con HMAC, vence en 5 min y es de un solo uso. Sin terceros: no envía datos a Google y funciona sin Internet | `captcha.service.ts`, `useCaptcha.ts` |
+| **Recuperación de contraseña**: token aleatorio de 256 bits; en la BD solo su hash SHA-256; vence en 30 min, sirve una vez y al usarse cierra las sesiones abiertas. La respuesta es igual exista o no la cuenta y no espera al envío del correo (no revela cuentas por tiempo). Sin correo, queda una solicitud para administración | `auth.service.ts`, `usp_PasswordResets_*` |
 | **Sesiones revalidadas en cada petición** (`usp_Users_GetSessionState`, búsqueda por clave primaria): desactivar o eliminar a un usuario lo saca de inmediato, un cambio de rol aplica en la siguiente petición y cambiar o restablecer la contraseña cierra las sesiones abiertas (el token lleva la "versión" de la contraseña) | `authenticate.ts` |
 | Validación de toda entrada con zod (campos desconocidos rechazados) | `*.schemas.ts` |
 | Errores 500 sin detalles internos; logs estructurados sin contraseñas ni tokens (`[REDACTED]`) | `error-handler.ts`, `logger.ts` |
@@ -331,15 +376,19 @@ curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application
 
 | Suite | Cantidad | Comando |
 |---|---|---|
-| Backend: unitarias + integración HTTP (supertest) | 116 | `cd backend && npm ci && npm test` |
-| Frontend: unitarias (composables, cliente HTTP, store, router, componentes) | 87 | `cd frontend && npm ci && npm test` |
-| End-to-end (Playwright, escritorio y móvil) contra `docker compose` | 56 | ver abajo |
+| Backend: unitarias + integración HTTP (supertest) | 135 | `cd backend && npm ci && npm test` |
+| Frontend: unitarias (composables, cliente HTTP, store, router, componentes) | 108 | `cd frontend && npm ci && npm test` |
+| End-to-end (Playwright, escritorio y móvil) contra `docker compose` | 66 | ver abajo |
 
 ```bash
 # Las pruebas hacen logins fallidos a propósito: se sube el límite anti fuerza bruta solo para esta corrida.
 AUTH_MAX_FAILED_ATTEMPTS=500 docker compose up --build -d
 cd e2e && npm ci && npx playwright install chromium && npm test
 ```
+
+**Integración continua** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): en cada *push* y *pull request*,
+lint, tipos, pruebas y auditoría de dependencias del backend y del frontend en paralelo; si pasan, levanta todo con
+`docker compose up --build` en un runner Linux y corre las pruebas E2E (con los logs y el reporte como evidencia si algo falla).
 
 Además: `npm run lint` y `npm run typecheck` en backend y frontend (TypeScript `strict` en todo el proyecto).
 Los scripts SQL se probaron conectados como el usuario de aplicación, ejecutándolos dos veces (idempotencia) y midiendo el índice con 200 000 filas ([evidencia](db/README.md#índice-principal--evidencia)).
