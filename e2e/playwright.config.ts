@@ -12,7 +12,10 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  // En CI, cada fallo se publica además como anotación de GitHub (visible sin descargar el reporte).
+  reporter: process.env.CI
+    ? [['github'], ['list'], ['html', { open: 'never' }]]
+    : [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: process.env.E2E_BASE_URL ?? `http://localhost:${process.env.FRONTEND_PORT ?? '8080'}`,
     trace: 'retain-on-failure',
