@@ -6,6 +6,7 @@
 #
 # Variables requeridas: DB_HOST, DB_PORT, DB_NAME, MSSQL_SA_PASSWORD,
 #                       DB_APP_USER, DB_APP_PASSWORD
+# Opcional:             SEED_DEMO_DATA (true = datos de demostración en una base sin tareas)
 # =============================================================================
 set -euo pipefail
 
@@ -47,6 +48,7 @@ run_scripts() {
     echo "[db-init] Ejecutando $(basename "$script")"
     run_sqlcmd \
       -v DB_NAME="$DB_NAME" DB_APP_USER="$DB_APP_USER" DB_APP_PASSWORD="$DB_APP_PASSWORD" \
+         SEED_DEMO_DATA="${SEED_DEMO_DATA:-false}" \
       -i "$script"
   done
 }
