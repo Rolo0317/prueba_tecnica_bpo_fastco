@@ -32,16 +32,20 @@ function fakeService(overrides: Partial<TaskService> = {}): TaskService {
 
 describe('parseFilters', () => {
   it('lee filtros válidos de la URL', () => {
-    expect(parseFilters({ status: 'PENDING', page: '3', pageSize: '25' })).toEqual({
+    expect(parseFilters({ status: 'PENDING', areaId: '4', page: '3', pageSize: '25' })).toEqual({
       status: 'PENDING',
+      areaId: 4,
       page: 3,
       pageSize: 25,
     });
   });
 
   it('ignora valores manipulados y usa valores por defecto', () => {
-    expect(parseFilters({ status: "x'; DROP", page: '-4', pageSize: '9999' })).toEqual({
+    expect(
+      parseFilters({ status: "x'; DROP", areaId: '1 OR 1=1', page: '-4', pageSize: '9999' }),
+    ).toEqual({
       status: null,
+      areaId: null,
       page: 1,
       pageSize: 10,
     });
@@ -54,7 +58,12 @@ describe('useTasks', () => {
     const { result } = await withSetup(() => useTasks(service));
     await flushPromises();
 
-    expect(service.list).toHaveBeenCalledWith({ status: null, page: 1, pageSize: 10 });
+    expect(service.list).toHaveBeenCalledWith({
+      status: null,
+      areaId: null,
+      page: 1,
+      pageSize: 10,
+    });
     expect(result.tasks.value).toHaveLength(1);
     expect(result.pagination.value.total).toBe(1);
   });
@@ -68,7 +77,12 @@ describe('useTasks', () => {
     await flushPromises();
 
     expect(router.currentRoute.value.query).toEqual({ status: 'COMPLETED' });
-    expect(service.list).toHaveBeenLastCalledWith({ status: 'COMPLETED', page: 1, pageSize: 10 });
+    expect(service.list).toHaveBeenLastCalledWith({
+      status: 'COMPLETED',
+      areaId: null,
+      page: 1,
+      pageSize: 10,
+    });
   });
 
   it('expone el error de carga para mostrarlo con opción de reintentar', async () => {
@@ -141,13 +155,18 @@ describe('useTaskForm', () => {
     priority: 'HIGH' as const,
     dueDate: '',
     assignedTo: 7,
+    areaId: 2,
   };
 
-  it('limpia la entrada y solo envía el responsable si quien edita puede asignar', () => {
+  it('limpia la entrada y solo envía responsable y área si quien edita puede elegirlos', () => {
     const base = { title: 'Escalar', description: null, priority: 'HIGH', dueDate: null };
 
     expect(toPayload(state)).toEqual(base);
-    expect(toPayload(state, true)).toEqual({ ...base, assignedTo: 7 });
+    expect(toPayload(state, { assign: true, chooseArea: false })).toEqual({
+      ...base,
+      assignedTo: 7,
+    });
+    expect(toPayload(state, { assign: false, chooseArea: true })).toEqual({ ...base, areaId: 2 });
   });
 
   it('sin tarea crea; con tarea edita y precarga sus datos (incluido el responsable)', async () => {
@@ -156,7 +175,7 @@ describe('useTaskForm', () => {
       update: vi.fn().mockResolvedValue(buildTask()),
     };
     const task = ref<Task | null>(null);
-    const form = useTaskForm(task, actions, ref(true));
+    const form = useTaskForm(task, actions, ref({ assign: true, chooseArea: true }));
 
     Object.assign(form.form, { title: 'Nueva', assignedTo: 3 });
     await form.submit();
@@ -181,7 +200,7 @@ describe('useTaskForm', () => {
     const form = useTaskForm(
       ref(null),
       { create: vi.fn().mockRejectedValue(error), update: vi.fn() },
-      ref(false),
+      ref({ assign: false, chooseArea: false }),
     );
 
     await form.submit();

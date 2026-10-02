@@ -1,10 +1,13 @@
-export type Role = 'ADMIN' | 'AGENT';
+import type { NamedRef, Permission } from '@/modules/access/types';
 
+/** Usuario autenticado: rol, área y permisos vigentes según la API. */
 export interface AuthUser {
   id: number;
   username: string;
   fullName: string;
-  role: Role;
+  role: NamedRef;
+  area: NamedRef | null;
+  permissions: Permission[];
 }
 
 export interface Credentials {

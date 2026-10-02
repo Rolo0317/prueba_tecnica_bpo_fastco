@@ -2,8 +2,9 @@ import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { sessionStore } from '@/modules/auth/services/sessionStorage';
 import { createAuthStore } from '@/modules/auth/stores/authStore';
+import { buildAuthUser, COLLABORATOR } from '../helpers';
 
-const user = { id: 1, username: 'admin', fullName: 'Administrador Demo', role: 'ADMIN' as const };
+const user = buildAuthUser();
 
 describe('authStore', () => {
   beforeEach(() => {
@@ -51,5 +52,48 @@ describe('authStore', () => {
 
     await expect(store.login({ username: 'admin', password: 'mala' })).rejects.toThrow();
     expect(store.isAuthenticated).toBe(false);
+  });
+});
+
+describe('authStore: permisos', () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+    setActivePinia(createPinia());
+  });
+
+  const loginAs = async (sessionUser = user, me = vi.fn()) => {
+    const login = vi
+      .fn()
+      .mockResolvedValue({ token: 'jwt', tokenType: 'Bearer', expiresIn: 3600, user: sessionUser });
+    const store = createAuthStore({ login }, { me })();
+    await store.login({ username: 'u', password: 'p' });
+    return store;
+  };
+
+  it('can() responde según los permisos del rol', async () => {
+    const admin = await loginAs();
+    expect(admin.can('ROLES_MANAGE')).toBe(true);
+
+    setActivePinia(createPinia());
+    const collaborator = await loginAs(COLLABORATOR);
+    expect(collaborator.can('TASKS_ASSIGN')).toBe(false);
+  });
+
+  it('refreshUser() aplica los permisos vigentes y los guarda en la sesión', async () => {
+    const promoted = { ...COLLABORATOR, permissions: ['USERS_MANAGE' as const] };
+    const store = await loginAs(COLLABORATOR, vi.fn().mockResolvedValue(promoted));
+
+    await store.refreshUser();
+
+    expect(store.can('USERS_MANAGE')).toBe(true);
+    expect(sessionStore.load()?.user.permissions).toEqual(['USERS_MANAGE']);
+  });
+
+  it('si /account/me falla, conserva la sesión guardada', async () => {
+    const store = await loginAs(COLLABORATOR, vi.fn().mockRejectedValue(new Error('offline')));
+
+    await store.refreshUser();
+
+    expect(store.user).toEqual(COLLABORATOR);
   });
 });

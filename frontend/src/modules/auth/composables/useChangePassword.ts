@@ -9,7 +9,7 @@ const initialState = () => ({ currentPassword: '', newPassword: '', confirmPassw
 
 /** ViewModel del cambio de la propia contraseña. */
 export function useChangePassword(
-  service: AccountService = accountService,
+  service: Pick<AccountService, 'changePassword'> = accountService,
   /** La sesión actual continúa con el token nuevo; las demás quedan cerradas por la API. */
   renewSession: (response: LoginResponse) => void = (response) => {
     useAuthStore().startSession(response);

@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { mdiOfficeBuildingOutline, mdiShieldAccountOutline } from '@mdi/js';
 import { computed, toRef, watch } from 'vue';
+import type { Area, Role } from '@/modules/access/types';
 import FormDialog from '@/shared/components/FormDialog.vue';
 import PasswordField from '@/shared/components/PasswordField.vue';
 import { PASSWORD_HINT } from '@/shared/validation/passwordRules';
-import { ROLE_OPTIONS, ROLE_VISUALS, USER_LIMITS } from '../constants';
+import { USER_LIMITS } from '../constants';
 import { useUserForm, type UserFormActions } from '../composables/useUserForm';
 import type { ManagedUser } from '../types';
 
@@ -11,20 +13,56 @@ const props = defineProps<{
   user: ManagedUser | null;
   currentUserId: number | null;
   actions: UserFormActions;
+  roles: Role[];
+  areas: Area[];
+  /** Con AREAS_MANAGE se puede escribir un área nueva y se crea al guardar. */
+  canCreateArea: boolean;
+  /** Roles que quien edita puede asignar (sin escalada de privilegios; la API también lo valida). */
+  canGrant: (role: Role) => boolean;
 }>();
 const emit = defineEmits<{ saved: [user: ManagedUser, created: boolean] }>();
 const open = defineModel<boolean>({ required: true });
 
+/** Rol por defecto al crear: Colaborador (el de menos permisos del sistema). */
+const defaultRoleId = computed(
+  () => props.roles.find((role) => role.code === 'COLLABORATOR')?.id ?? null,
+);
+
 const { form, isEdit, rules, loading, fieldErrors, generalError, reset, submit } = useUserForm(
   toRef(props, 'user'),
   props.actions,
+  { areas: toRef(props, 'areas'), defaultRoleId },
 );
 
-/** Un administrador no puede quitarse a sí mismo el rol (la API también lo impide). */
+const permissionCount = (count: number) =>
+  count === 1 ? '1 permiso' : `${String(count)} permisos`;
+
+/** Nadie se cambia su propio rol (la API también lo impide). */
 const isSelf = computed(() => props.user !== null && props.user.id === props.currentUserId);
-const roleHint = computed(() =>
-  isSelf.value ? 'No puedes cambiar tu propio rol.' : ROLE_VISUALS[form.role].description,
+
+const roleItems = computed(() =>
+  props.roles.map((role) => ({
+    value: role.id,
+    title: role.name,
+    subtitle: props.canGrant(role)
+      ? (role.description ?? permissionCount(role.permissions.length))
+      : 'Tiene permisos que tú no tienes',
+    disabled: !props.canGrant(role),
+  })),
 );
+const roleHint = computed(() => {
+  if (isSelf.value) return 'No puedes cambiar tu propio rol.';
+  return props.roles.find((role) => role.id === form.roleId)?.description ?? '';
+});
+
+const areaItems = computed(() => props.areas.map((area) => ({ value: area.id, title: area.name })));
+const isNewArea = computed(() => typeof form.area === 'string' && form.area.trim().length > 0);
+const areaHint = computed(() => {
+  if (isNewArea.value) return `Se creará el área "${String(form.area).trim()}" al guardar.`;
+  return props.canCreateArea
+    ? 'Elige una o escribe el nombre de una nueva. Vacío = sin área.'
+    : 'Opcional. Un supervisor ve las tareas de su área.';
+});
 
 watch(open, (isOpen) => {
   if (isOpen) reset();
@@ -46,6 +84,7 @@ async function onSubmit(): Promise<void> {
     :submit-label="isEdit ? 'Guardar cambios' : 'Crear usuario'"
     :loading="loading"
     :general-error="generalError"
+    :max-width="560"
     @submit="onSubmit"
   >
     <v-text-field
@@ -69,28 +108,50 @@ async function onSubmit(): Promise<void> {
       :autofocus="isEdit"
     />
 
-    <fieldset class="choice-field">
-      <legend class="choice-field__legend">Rol</legend>
-      <v-btn-toggle
-        v-model="form.role"
-        mandatory
-        divided
-        variant="outlined"
-        color="primary"
-        density="comfortable"
-        :disabled="isSelf"
-      >
-        <v-btn
-          v-for="option in ROLE_OPTIONS"
-          :key="option.value"
-          :value="option.value"
-          :prepend-icon="option.icon"
-        >
-          {{ option.label }}
-        </v-btn>
-      </v-btn-toggle>
-      <p class="role-hint text-medium-emphasis">{{ roleHint }}</p>
-    </fieldset>
+    <v-autocomplete
+      v-model="form.roleId"
+      label="Rol *"
+      :items="roleItems"
+      item-value="value"
+      item-title="title"
+      :item-props="(item: { subtitle: string; disabled: boolean }) => item"
+      :prepend-inner-icon="mdiShieldAccountOutline"
+      :rules="rules.roleId"
+      :error-messages="fieldErrors.roleId"
+      :hint="roleHint"
+      persistent-hint
+      :disabled="isSelf"
+      no-data-text="No hay roles con ese nombre"
+    />
+
+    <v-combobox
+      v-if="canCreateArea"
+      v-model="form.area"
+      label="Área"
+      :items="areaItems"
+      item-value="value"
+      item-title="title"
+      :return-object="false"
+      :prepend-inner-icon="mdiOfficeBuildingOutline"
+      :error-messages="fieldErrors.areaId"
+      :hint="areaHint"
+      persistent-hint
+      clearable
+    />
+    <v-autocomplete
+      v-else
+      v-model="form.area"
+      label="Área"
+      :items="areaItems"
+      item-value="value"
+      item-title="title"
+      :prepend-inner-icon="mdiOfficeBuildingOutline"
+      :error-messages="fieldErrors.areaId"
+      :hint="areaHint"
+      persistent-hint
+      clearable
+      no-data-text="No hay áreas activas"
+    />
 
     <template v-if="!isEdit">
       <PasswordField
@@ -110,10 +171,3 @@ async function onSubmit(): Promise<void> {
     </template>
   </FormDialog>
 </template>
-
-<style scoped>
-.role-hint {
-  font-size: 0.75rem;
-  margin-top: 4px;
-}
-</style>

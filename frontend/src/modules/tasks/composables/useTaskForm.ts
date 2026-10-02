@@ -11,6 +11,8 @@ interface TaskFormState {
   dueDate: string;
   /** null = sin asignar. */
   assignedTo: number | null;
+  /** null = sin área. */
+  areaId: number | null;
 }
 
 const initialState = (task: Task | null): TaskFormState => ({
@@ -19,6 +21,7 @@ const initialState = (task: Task | null): TaskFormState => ({
   priority: task?.priority ?? 'MEDIUM',
   dueDate: task?.dueDate ?? '',
   assignedTo: task?.assignedTo?.id ?? null,
+  areaId: task?.area?.id ?? null,
 });
 
 /** Mismas reglas que el backend, para dar feedback inmediato (el backend sigue validando). */
@@ -43,14 +46,26 @@ export const taskFormRules = {
   ],
 };
 
-/** El responsable solo se envía cuando quien edita puede asignar (administrador). */
-export function toPayload(state: TaskFormState, includeAssignee = false): CreateTaskPayload {
+/** Qué campos opcionales puede enviar quien edita, según sus permisos. */
+export interface TaskFormAbilities {
+  /** TASKS_ASSIGN: elige el responsable. */
+  assign: boolean;
+  /** TASKS_VIEW_ALL: elige el área. */
+  chooseArea: boolean;
+}
+
+/** El responsable y el área solo se envían si quien edita tiene permiso para elegirlos. */
+export function toPayload(
+  state: TaskFormState,
+  abilities: TaskFormAbilities = { assign: false, chooseArea: false },
+): CreateTaskPayload {
   return {
     title: state.title.trim(),
     description: state.description.trim() || null,
     priority: state.priority,
     dueDate: state.dueDate || null,
-    ...(includeAssignee && { assignedTo: state.assignedTo }),
+    ...(abilities.assign && { assignedTo: state.assignedTo }),
+    ...(abilities.chooseArea && { areaId: state.areaId }),
   };
 }
 
@@ -63,14 +78,14 @@ export interface TaskFormActions {
 export function useTaskForm(
   task: Ref<Task | null>,
   actions: TaskFormActions,
-  canAssign: Ref<boolean>,
+  abilities: Ref<TaskFormAbilities>,
 ) {
   const form = reactive<TaskFormState>(initialState(null));
   const isEdit = computed(() => task.value !== null);
   const dueDateRules = computed(() => taskFormRules.dueDate(task.value?.dueDate ?? null));
 
   const { loading, fieldErrors, generalError, clearErrors, submit } = useFormSubmit(() => {
-    const payload = toPayload(form, canAssign.value);
+    const payload = toPayload(form, abilities.value);
     return task.value ? actions.update(task.value, payload) : actions.create(payload);
   });
 

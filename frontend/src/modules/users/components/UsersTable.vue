@@ -33,7 +33,8 @@ const emit = defineEmits<{
 
 const headers = [
   { title: 'Usuario', key: 'fullName', sortable: false, minWidth: '240px' },
-  { title: 'Rol', key: 'role', sortable: false, width: '160px' },
+  { title: 'Rol', key: 'role', sortable: false, width: '170px' },
+  { title: 'Área', key: 'area', sortable: false, width: '170px' },
   { title: 'Estado', key: 'isActive', sortable: false, width: '120px' },
   { title: 'Contraseña', key: 'passwordChangedAt', sortable: false, width: '210px' },
   { title: 'Acciones', key: 'actions', sortable: false, align: 'end', width: '200px' },
@@ -79,6 +80,11 @@ const pageSizeOptions = PAGE_SIZE_OPTIONS.map((value) => ({ value, title: String
 
     <template #[`item.role`]="{ item }">
       <UserRoleChip :role="item.role" />
+    </template>
+
+    <template #[`item.area`]="{ item }">
+      <span v-if="item.area">{{ item.area.name }}</span>
+      <span v-else class="text-medium-emphasis">Sin área</span>
     </template>
 
     <template #[`item.isActive`]="{ item }">

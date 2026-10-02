@@ -1,33 +1,56 @@
 <script setup lang="ts">
-import { mdiAccountOutline } from '@mdi/js';
+import { mdiAccountOutline, mdiOfficeBuildingOutline } from '@mdi/js';
 import { computed, toRef, watch } from 'vue';
 import FormDialog from '@/shared/components/FormDialog.vue';
 import { todayIso } from '@/shared/utils/dates';
 import { PRIORITY_OPTIONS, TASK_LIMITS } from '../constants';
-import { taskFormRules, useTaskForm, type TaskFormActions } from '../composables/useTaskForm';
+import type { Area, NamedRef } from '@/modules/access/types';
+import {
+  taskFormRules,
+  useTaskForm,
+  type TaskFormAbilities,
+  type TaskFormActions,
+} from '../composables/useTaskForm';
 import type { Assignee, Task } from '../types';
 
 const props = defineProps<{
   /** null = crear; una tarea = editarla. */
   task: Task | null;
   actions: TaskFormActions;
-  /** Solo el administrador elige responsable; la tarea de un agente queda asignada a él. */
-  canAssign: boolean;
+  /** Según los permisos: elegir responsable (TASKS_ASSIGN) y área (TASKS_VIEW_ALL). */
+  abilities: TaskFormAbilities;
   assignees: Assignee[];
+  areas: Area[];
+  /** Área de quien crea: ahí queda la tarea si no puede elegir otra. */
+  userArea: NamedRef | null;
 }>();
 const emit = defineEmits<{ saved: [task: Task, created: boolean] }>();
 const open = defineModel<boolean>({ required: true });
 
 const { form, isEdit, dueDateRules, loading, fieldErrors, generalError, reset, submit } =
-  useTaskForm(toRef(props, 'task'), props.actions, toRef(props, 'canAssign'));
+  useTaskForm(toRef(props, 'task'), props.actions, toRef(props, 'abilities'));
 
 const assigneeItems = computed(() =>
   props.assignees.map((user) => ({
     value: user.id,
     title: user.fullName,
-    subtitle: `@${user.username}`,
+    subtitle: user.area ? `@${user.username} · ${user.area.name}` : `@${user.username}`,
   })),
 );
+
+const areaItems = computed(() => props.areas.map((area) => ({ value: area.id, title: area.name })));
+
+/** Qué se le explica a quien no elige responsable o área. */
+const fixedNote = computed(() => {
+  if (isEdit.value) return null;
+  const area = props.abilities.chooseArea ? null : props.userArea?.name;
+  if (!props.abilities.assign) {
+    return area
+      ? `La tarea quedará asignada a ti, en el área ${area}.`
+      : 'La tarea quedará asignada a ti.';
+  }
+  return area ? `La tarea quedará en tu área: ${area}.` : null;
+});
 
 watch(open, (isOpen) => {
   if (isOpen) reset();
@@ -109,7 +132,25 @@ async function onSubmit(): Promise<void> {
     />
 
     <v-autocomplete
-      v-if="canAssign"
+      v-if="abilities.chooseArea"
+      v-model="form.areaId"
+      label="Área"
+      :items="areaItems"
+      item-value="value"
+      item-title="title"
+      :prepend-inner-icon="mdiOfficeBuildingOutline"
+      :error-messages="fieldErrors.areaId"
+      placeholder="Sin área"
+      hint="Quien supervise el área verá y gestionará la tarea"
+      persistent-hint
+      variant="outlined"
+      density="comfortable"
+      clearable
+      no-data-text="No hay áreas activas"
+    />
+
+    <v-autocomplete
+      v-if="abilities.assign"
       v-model="form.assignedTo"
       label="Responsable"
       :items="assigneeItems"
@@ -118,16 +159,14 @@ async function onSubmit(): Promise<void> {
       :prepend-inner-icon="mdiAccountOutline"
       :error-messages="fieldErrors.assignedTo"
       placeholder="Sin asignar"
-      hint="Solo verá la tarea quien la tenga asignada (y los administradores)"
+      hint="La verán quien la tenga asignada, quien la creó y quien supervise su área"
       persistent-hint
       variant="outlined"
       density="comfortable"
       clearable
       no-data-text="No hay usuarios activos"
     />
-    <p v-else-if="!isEdit" class="assign-note text-medium-emphasis">
-      La tarea quedará asignada a ti.
-    </p>
+    <p v-if="fixedNote" class="assign-note text-medium-emphasis">{{ fixedNote }}</p>
   </FormDialog>
 </template>
 

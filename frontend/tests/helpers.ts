@@ -1,7 +1,41 @@
 import { mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
+import type { Permission } from '@/modules/access/types';
+import type { AuthUser } from '@/modules/auth/types';
 import type { Task, TaskStats, TaskStatus } from '@/modules/tasks/types';
+
+export const ALL_PERMISSIONS: Permission[] = [
+  'TASKS_VIEW_ALL',
+  'TASKS_VIEW_AREA',
+  'TASKS_EDIT_ANY',
+  'TASKS_ASSIGN',
+  'USERS_MANAGE',
+  'AREAS_MANAGE',
+  'ROLES_MANAGE',
+];
+
+/** Administrador por defecto; con `permissions: []` y otro rol, un colaborador. */
+export function buildAuthUser(overrides: Partial<AuthUser> = {}): AuthUser {
+  return {
+    id: 1,
+    username: 'admin',
+    fullName: 'Administrador Demo',
+    role: { id: 1, name: 'Administrador' },
+    area: null,
+    permissions: ALL_PERMISSIONS,
+    ...overrides,
+  };
+}
+
+export const COLLABORATOR: AuthUser = buildAuthUser({
+  id: 2,
+  username: 'agente',
+  fullName: 'Agente Uno',
+  role: { id: 3, name: 'Colaborador' },
+  area: { id: 1, name: 'Operaciones' },
+  permissions: [],
+});
 
 /** Se usa el mismo plugin de la app (tema, íconos SVG, idioma) para probar la configuración real. */
 export { vuetify } from '@/plugins/vuetify';
@@ -45,6 +79,7 @@ export function buildTask(overrides: Partial<Task> = {}): Task {
     dueDate: null,
     createdBy: { id: 1, name: 'Agente' },
     assignedTo: null,
+    area: null,
     notesCount: 0,
     createdAt: '2026-10-01T10:00:00.000Z',
     updatedAt: '2026-10-01T10:00:00.000Z',

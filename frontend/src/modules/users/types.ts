@@ -1,25 +1,28 @@
-import type { Role } from '@/modules/auth/types';
-
-export type { Role };
+import type { NamedRef } from '@/modules/access/types';
 
 export interface ManagedUser {
   id: number;
   username: string;
   fullName: string;
-  role: Role;
+  role: NamedRef;
+  /** null = sin área. */
+  area: NamedRef | null;
   isActive: boolean;
   createdAt: string;
   passwordChangedAt: string | null;
 }
 
-export interface NewUserPayload {
+export interface UserAssignment {
+  roleId: number;
+  areaId: number | null;
+}
+
+export interface NewUserPayload extends UserAssignment {
   username: string;
   fullName: string;
-  role: Role;
   password: string;
 }
 
-export interface UpdateUserPayload {
+export interface UpdateUserPayload extends UserAssignment {
   fullName: string;
-  role: Role;
 }

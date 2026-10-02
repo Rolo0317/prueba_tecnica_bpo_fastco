@@ -12,14 +12,16 @@ const STATUS_PATTERN = /^[A-Z_]{1,20}$/;
 const firstValue = (value: LocationQuery[string] | undefined): string | null =>
   (Array.isArray(value) ? value[0] : value) ?? null;
 
-/** Los filtros viven en la URL (?status=&page=&pageSize=): se pueden compartir y sobreviven al recargar. */
+/** Los filtros viven en la URL (?status=&areaId=&page=&pageSize=): se pueden compartir y sobreviven al recargar. */
 export function parseFilters(query: LocationQuery): TaskFilters {
   const status = firstValue(query.status);
+  const areaId = Number(firstValue(query.areaId));
   const page = Number(firstValue(query.page));
   const pageSize = Number(firstValue(query.pageSize));
 
   return {
     status: status && STATUS_PATTERN.test(status) ? status : null,
+    areaId: Number.isInteger(areaId) && areaId >= 1 ? areaId : null,
     page: Number.isInteger(page) && page >= 1 ? page : 1,
     pageSize: (PAGE_SIZE_OPTIONS as readonly number[]).includes(pageSize)
       ? pageSize
@@ -47,6 +49,7 @@ export function useTasks(service: TaskService = taskService) {
     return router.replace({
       query: {
         ...(next.status && { status: next.status }),
+        ...(next.areaId !== null && { areaId: String(next.areaId) }),
         ...(next.page > 1 && { page: String(next.page) }),
         ...(next.pageSize !== DEFAULT_PAGE_SIZE && { pageSize: String(next.pageSize) }),
       },
@@ -54,6 +57,8 @@ export function useTasks(service: TaskService = taskService) {
   }
 
   const setStatus = (status: string | null) => updateQuery({ status, page: 1 });
+  const setArea = (areaId: number | null) => updateQuery({ areaId, page: 1 });
+  const clearFilters = () => updateQuery({ status: null, areaId: null, page: 1 });
   const setPage = (page: number) => updateQuery({ page });
   const setPageSize = (pageSize: number) => updateQuery({ pageSize, page: 1 });
 
@@ -75,7 +80,7 @@ export function useTasks(service: TaskService = taskService) {
     updatingTaskId.value = task.id;
     try {
       const updated = await service.changeStatus(task.id, status);
-      // Si hay un filtro activo, la tarea puede dejar de pertenecer a la vista: se recarga.
+      // Si hay un filtro de estado, la tarea puede dejar de pertenecer a la vista: se recarga.
       if (filters.value.status) await reload();
       else replaceTask(updated);
       return updated;
@@ -104,6 +109,8 @@ export function useTasks(service: TaskService = taskService) {
     updatingTaskId,
     reload,
     setStatus,
+    setArea,
+    clearFilters,
     setPage,
     setPageSize,
     create,

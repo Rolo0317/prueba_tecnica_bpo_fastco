@@ -21,7 +21,7 @@ const props = defineProps<{
   filtered: boolean;
   updatingTaskId: number | null;
   transitionsFor: (code: string) => TaskStatus[];
-  /** Si el usuario actual puede editar la tarea (administrador o quien la creó). */
+  /** Si el usuario actual puede editar la tarea (permiso TASKS_EDIT_ANY o quien la creó). */
   canEdit: (task: Task) => boolean;
 }>();
 
@@ -40,15 +40,19 @@ const ALL_HEADERS = [
   { title: 'Prioridad', key: 'priority', sortable: false, width: '120px' },
   { title: 'Estado', key: 'status', sortable: false, width: '150px' },
   { title: 'Responsable', key: 'assignedTo', sortable: false, width: '190px' },
+  { title: 'Área', key: 'area', sortable: false, width: '150px' },
   { title: 'Fecha límite', key: 'dueDate', sortable: false, width: '190px' },
   { title: 'Creada', key: 'createdAt', sortable: false, width: '180px' },
   { title: 'Acciones', key: 'actions', sortable: false, align: 'end', width: '210px' },
 ] as const;
 
-/** En pantallas pequeñas cada fila se apila: se omite la columna secundaria "Creada". */
-const { smAndDown } = useDisplay();
+/**
+ * La columna secundaria "Creada" solo se muestra en pantallas anchas (el dato sigue
+ * disponible en el seguimiento de la tarea); en móvil cada fila se apila.
+ */
+const { width } = useDisplay();
 const headers = computed(() =>
-  smAndDown.value ? ALL_HEADERS.filter((header) => header.key !== 'createdAt') : ALL_HEADERS,
+  width.value < 1440 ? ALL_HEADERS.filter((header) => header.key !== 'createdAt') : ALL_HEADERS,
 );
 
 const pageSizeOptions = PAGE_SIZE_OPTIONS.map((value) => ({ value, title: String(value) }));
@@ -122,6 +126,11 @@ const isFinal = (task: Task) => props.transitionsFor(task.status.code).length ==
       <v-chip v-else size="small" variant="outlined" label>Sin asignar</v-chip>
     </template>
 
+    <template #[`item.area`]="{ item }">
+      <span v-if="item.area" class="area-name">{{ item.area.name }}</span>
+      <span v-else class="text-medium-emphasis">Sin área</span>
+    </template>
+
     <template #[`item.dueDate`]="{ item }">
       <TaskDueDate :due-date="item.dueDate" :is-final="isFinal(item)" />
     </template>
@@ -163,6 +172,9 @@ const isFinal = (task: Task) => props.transitionsFor(task.status.code).length ==
 }
 .assignee__avatar {
   font-size: 0.7rem;
+}
+.area-name {
+  font-size: 0.875rem;
 }
 .row-actions {
   display: inline-flex;

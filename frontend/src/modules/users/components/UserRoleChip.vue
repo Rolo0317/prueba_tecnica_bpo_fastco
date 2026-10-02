@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { ROLE_VISUALS } from '../constants';
-import type { Role } from '../types';
+import { mdiShieldAccountOutline } from '@mdi/js';
+import type { NamedRef } from '@/modules/access/types';
 
-const props = defineProps<{ role: Role }>();
-const visual = computed(() => ROLE_VISUALS[props.role]);
+defineProps<{ role: NamedRef }>();
 </script>
 
 <template>
-  <v-chip :color="visual.color" :prepend-icon="visual.icon" size="small" variant="tonal" label>
-    {{ visual.label }}
+  <v-chip
+    :prepend-icon="mdiShieldAccountOutline"
+    color="secondary"
+    size="small"
+    variant="tonal"
+    label
+  >
+    {{ role.name }}
   </v-chip>
 </template>

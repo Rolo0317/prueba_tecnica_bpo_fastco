@@ -3,7 +3,7 @@ import { userService, type UserService } from '@/modules/users/services/userServ
 import { useAsyncState } from '@/shared/composables/useAsyncState';
 import type { Assignee } from '../types';
 
-/** Usuarios activos a los que un administrador puede asignar tareas. */
+/** Responsables posibles para quien asigna: todos, o los de su área (lo decide la API). */
 export function useAssignees(service: Pick<UserService, 'listAssignable'> = userService) {
   const { data, loading, error, execute } = useAsyncState(() => service.listAssignable());
   const assignees = computed<Assignee[]>(() => data.value ?? []);

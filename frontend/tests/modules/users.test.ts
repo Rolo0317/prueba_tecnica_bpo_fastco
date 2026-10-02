@@ -1,22 +1,22 @@
-import { createPinia, setActivePinia } from 'pinia';
 import { describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 import { ApiError } from '@/core/http';
 import { useChangePassword } from '@/modules/auth/composables/useChangePassword';
-import { createAuthStore } from '@/modules/auth/stores/authStore';
-import { useUserForm } from '@/modules/users/composables/useUserForm';
+import type { Area } from '@/modules/access/types';
+import { resolveAreaId, useUserForm } from '@/modules/users/composables/useUserForm';
 import { useUsers } from '@/modules/users/composables/useUsers';
 import type { UserService } from '@/modules/users/services/userService';
 import type { ManagedUser } from '@/modules/users/types';
 import { initialsOf } from '@/shared/utils/text';
 import { passwordPolicyRules } from '@/shared/validation/passwordRules';
-import { flushPromises, withSetup } from '../helpers';
+import { COLLABORATOR, flushPromises, withSetup } from '../helpers';
 
 const buildUser = (overrides: Partial<ManagedUser> = {}): ManagedUser => ({
   id: 2,
   username: 'agente',
   fullName: 'Agente Uno',
-  role: 'AGENT',
+  role: { id: 3, name: 'Colaborador' },
+  area: { id: 1, name: 'Operaciones' },
   isActive: true,
   createdAt: '2026-10-01T10:00:00.000Z',
   passwordChangedAt: null,
@@ -54,21 +54,29 @@ describe('política de contraseñas (igual a la del backend)', () => {
   });
 });
 
-describe('authStore.isAdmin', () => {
-  it('solo es verdadero para el rol ADMIN', async () => {
-    const isAdminFor = async (role: 'ADMIN' | 'AGENT') => {
-      setActivePinia(createPinia());
-      const user = { id: 1, username: 'u', fullName: 'U', role };
-      const login = vi
-        .fn()
-        .mockResolvedValue({ token: 'jwt', tokenType: 'Bearer', expiresIn: 3600, user });
-      const store = createAuthStore({ login })();
-      await store.login({ username: 'u', password: 'p' });
-      return store.isAdmin;
-    };
+const AREAS: Area[] = [
+  {
+    id: 1,
+    name: 'Operaciones',
+    description: null,
+    isActive: true,
+    createdAt: '2026-10-01T10:00:00.000Z',
+    usersCount: 1,
+    openTasksCount: 0,
+  },
+];
 
-    expect(await isAdminFor('ADMIN')).toBe(true);
-    expect(await isAdminFor('AGENT')).toBe(false);
+describe('resolveAreaId (área elegida o escrita en el formulario)', () => {
+  it('usa el id elegido, reutiliza un área con el mismo nombre o crea una nueva', async () => {
+    const createArea = vi.fn().mockResolvedValue({ ...AREAS[0], id: 9, name: 'Logística' });
+
+    expect(await resolveAreaId(1, AREAS, createArea)).toBe(1);
+    expect(await resolveAreaId(null, AREAS, createArea)).toBeNull();
+    expect(await resolveAreaId('  operaciones ', AREAS, createArea)).toBe(1);
+    expect(createArea).not.toHaveBeenCalled();
+
+    expect(await resolveAreaId('Logística', AREAS, createArea)).toBe(9);
+    expect(createArea).toHaveBeenCalledWith({ name: 'Logística', description: null });
   });
 });
 
@@ -130,41 +138,53 @@ describe('eliminar usuario e iniciales', () => {
 });
 
 describe('useUserForm', () => {
-  it('sin usuario crea; con usuario edita solo nombre y rol', async () => {
+  const formOptions = { areas: ref(AREAS), defaultRoleId: ref<number | null>(3) };
+
+  it('sin usuario crea con rol y área (incluso un área nueva); con usuario edita', async () => {
     const actions = {
       create: vi.fn().mockResolvedValue(buildUser()),
       update: vi.fn().mockResolvedValue(buildUser()),
+      createArea: vi.fn().mockResolvedValue({ ...AREAS[0], id: 7, name: 'Logística' }),
     };
     const target = ref<ManagedUser | null>(null);
-    const userForm = useUserForm(target, actions);
+    const userForm = useUserForm(target, actions, formOptions);
+    userForm.reset();
+    expect(userForm.form.roleId).toBe(3);
 
     Object.assign(userForm.form, {
       username: ' nuevo ',
       fullName: ' Nuevo ',
-      role: 'ADMIN',
+      roleId: 1,
+      area: 'Logística',
       password: 'Valida-2026x',
     });
     await userForm.submit();
     expect(actions.create).toHaveBeenCalledWith({
       username: 'nuevo',
       fullName: 'Nuevo',
-      role: 'ADMIN',
+      roleId: 1,
+      areaId: 7,
       password: 'Valida-2026x',
     });
 
     target.value = buildUser();
     userForm.reset();
-    expect(userForm.form.username).toBe('agente');
+    expect(userForm.form).toMatchObject({ username: 'agente', roleId: 3, area: 1 });
     await userForm.submit();
-    expect(actions.update).toHaveBeenCalledWith(2, { fullName: 'Agente Uno', role: 'AGENT' });
+    expect(actions.update).toHaveBeenCalledWith(2, {
+      fullName: 'Agente Uno',
+      roleId: 3,
+      areaId: 1,
+    });
   });
 
   it('muestra el 409 de usuario duplicado como error general', async () => {
     const conflict = new ApiError(409, 'CONFLICT', 'El nombre de usuario ya existe.');
-    const userForm = useUserForm(ref(null), {
-      create: vi.fn().mockRejectedValue(conflict),
-      update: vi.fn(),
-    });
+    const userForm = useUserForm(
+      ref(null),
+      { create: vi.fn().mockRejectedValue(conflict), update: vi.fn(), createArea: vi.fn() },
+      formOptions,
+    );
 
     await userForm.submit();
 
@@ -178,7 +198,7 @@ describe('useChangePassword', () => {
       token: 'nuevo',
       tokenType: 'Bearer' as const,
       expiresIn: 3600,
-      user: { id: 1, username: 'u', fullName: 'U', role: 'AGENT' as const },
+      user: COLLABORATOR,
     };
     const renewSession = vi.fn();
     const { form, submit } = useChangePassword(

@@ -1,12 +1,14 @@
 import { nextTick } from 'vue';
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
+import type { Permission } from '@/modules/access/types';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 
 declare module 'vue-router' {
   interface RouteMeta {
     title?: string;
     requiresAuth?: boolean;
-    requiresAdmin?: boolean;
+    /** Permiso necesario para ver la pantalla. */
+    permission?: Permission;
     guestOnly?: boolean;
   }
 }
@@ -37,7 +39,19 @@ export const routes: RouteRecordRaw[] = [
         path: 'users',
         name: 'users',
         component: () => import('@/modules/users/views/UsersView.vue'),
-        meta: { title: 'Usuarios', requiresAdmin: true },
+        meta: { title: 'Usuarios', permission: 'USERS_MANAGE' },
+      },
+      {
+        path: 'areas',
+        name: 'areas',
+        component: () => import('@/modules/access/views/AreasView.vue'),
+        meta: { title: 'Áreas', permission: 'AREAS_MANAGE' },
+      },
+      {
+        path: 'roles',
+        name: 'roles',
+        component: () => import('@/modules/access/views/RolesView.vue'),
+        meta: { title: 'Roles y permisos', permission: 'ROLES_MANAGE' },
       },
     ],
   },
@@ -52,8 +66,8 @@ router.beforeEach((to) => {
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } };
   }
-  // Solo oculta la pantalla: la API rechaza con 403 a quien no es administrador.
-  if (to.meta.requiresAdmin && !auth.isAdmin) {
+  // Solo oculta la pantalla: la API rechaza con 403 a quien no tiene el permiso.
+  if (to.meta.permission && !auth.can(to.meta.permission)) {
     return { name: 'tasks' };
   }
   if (to.meta.guestOnly && auth.isAuthenticated) {
@@ -81,6 +95,6 @@ router.afterEach((to, from) => {
 
   // Accesibilidad: al cambiar de página, el foco va al contenido principal (lectores de pantalla).
   if (from.name !== undefined && to.name !== from.name) {
-    void nextTick(() => document.getElementById('main-content')?.focus());
+    void nextTick(() => document.getElementById('main-content')?.focus({ preventScroll: true }));
   }
 });

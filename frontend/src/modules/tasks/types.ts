@@ -1,3 +1,5 @@
+import type { NamedRef } from '@/modules/access/types';
+
 export type Priority = 'HIGH' | 'MEDIUM' | 'LOW';
 
 export interface Task {
@@ -9,7 +11,9 @@ export interface Task {
   dueDate: string | null;
   createdBy: { id: number; name: string };
   /** Responsable; null = sin asignar. */
-  assignedTo: { id: number; name: string } | null;
+  assignedTo: NamedRef | null;
+  /** Área de la tarea; null = sin área. */
+  area: NamedRef | null;
   /** Cantidad de avances registrados en el seguimiento. */
   notesCount: number;
   createdAt: string;
@@ -25,10 +29,7 @@ export interface TaskStatus {
 
 export type { Paginated, Pagination } from '@/shared/types/pagination';
 
-interface Person {
-  id: number;
-  name: string;
-}
+type Person = NamedRef;
 
 interface StatusRef {
   code: string;
@@ -73,6 +74,8 @@ export interface TaskStats {
 
 export interface TaskFilters {
   status: string | null;
+  /** Filtro por área (null = todas las visibles). */
+  areaId: number | null;
   page: number;
   pageSize: number;
 }
@@ -82,8 +85,10 @@ export interface CreateTaskPayload {
   description: string | null;
   priority: Priority;
   dueDate: string | null;
-  /** Solo lo envía un administrador; ausente = conservar / valor por defecto. */
+  /** Solo lo envía quien puede asignar; ausente = conservar / valor por defecto. */
   assignedTo?: number | null;
+  /** Solo lo envía quien ve todas las áreas; ausente = el área de quien crea / conservar. */
+  areaId?: number | null;
 }
 
 export type UpdateTaskPayload = CreateTaskPayload;
@@ -92,4 +97,5 @@ export interface Assignee {
   id: number;
   username: string;
   fullName: string;
+  area: NamedRef | null;
 }

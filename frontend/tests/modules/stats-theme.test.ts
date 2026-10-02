@@ -20,7 +20,7 @@ describe('useTaskStats', () => {
 
     await load();
 
-    expect(stats).toHaveBeenCalledWith(todayIso());
+    expect(stats).toHaveBeenCalledWith(todayIso(), null);
     expect(data.value?.total).toBe(10);
   });
 });

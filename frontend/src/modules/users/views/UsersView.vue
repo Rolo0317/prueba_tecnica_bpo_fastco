@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { mdiAccountPlusOutline } from '@mdi/js';
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { toApiError } from '@/core/http';
+import { useAreas } from '@/modules/access/composables/useAreas';
+import { accessService } from '@/modules/access/services/accessService';
+import type { Role } from '@/modules/access/types';
+import { useAsyncState } from '@/shared/composables/useAsyncState';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 import ConfirmDialog from '@/shared/components/ConfirmDialog.vue';
 import { useNotifier } from '@/shared/composables/useNotifier';
@@ -29,7 +33,19 @@ const {
   resetPassword,
 } = useUsers();
 
-const formActions = { create, update };
+/** Catálogos del formulario: roles asignables y áreas activas. */
+const roleCatalog = useAsyncState(() => accessService.listRoles());
+const roles = computed<Role[]>(() => roleCatalog.data.value ?? []);
+const areaCatalog = useAreas();
+onMounted(() => {
+  void roleCatalog.execute();
+  void areaCatalog.load();
+});
+
+const formActions = { create, update, createArea: areaCatalog.create };
+const canCreateArea = computed(() => auth.can('AREAS_MANAGE'));
+/** Sin escalada: solo se asignan roles cuyos permisos tiene quien administra. */
+const canGrant = (role: Role) => role.permissions.every((permission) => auth.can(permission));
 const currentUserId = computed(() => auth.user?.id ?? null);
 const selected = ref<ManagedUser | null>(null);
 const formOpen = ref(false);
@@ -48,6 +64,8 @@ function openReset(user: ManagedUser): void {
 }
 
 function onSaved(user: ManagedUser, created: boolean): void {
+  // El área pudo crearse desde el formulario y los conteos de los roles cambian.
+  void roleCatalog.execute();
   notifier.success(
     created ? `Usuario "${user.username}" creado.` : `Cambios de "${user.username}" guardados.`,
   );
@@ -109,7 +127,7 @@ function confirmDeactivate(): void {
       <div>
         <h1 id="users-title" class="page-title">Usuarios</h1>
         <p class="text-medium-emphasis">
-          Crea cuentas, asigna roles y controla el acceso del equipo.
+          Crea cuentas, asigna rol y área, y controla el acceso del equipo.
         </p>
       </div>
       <v-btn
@@ -154,6 +172,10 @@ function confirmDeactivate(): void {
       :user="selected"
       :current-user-id="currentUserId"
       :actions="formActions"
+      :roles="roles"
+      :areas="areaCatalog.areas.value"
+      :can-create-area="canCreateArea"
+      :can-grant="canGrant"
       @saved="onSaved"
     />
 

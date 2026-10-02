@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { mdiPlus, mdiRefresh } from '@mdi/js';
+import { mdiOfficeBuildingOutline } from '@mdi/js';
 import { computed, onMounted, ref } from 'vue';
 import { toApiError } from '@/core/http';
+import { useAreas } from '@/modules/access/composables/useAreas';
 import { useAuthStore } from '@/modules/auth/stores/authStore';
 import { useNotifier } from '@/shared/composables/useNotifier';
 import TaskFollowUpDrawer from '../components/TaskFollowUpDrawer.vue';
@@ -18,8 +20,8 @@ import type { Task } from '../types';
 const auth = useAuthStore();
 const notifier = useNotifier();
 const statusCatalog = useTaskStatuses();
-const taskStats = useTaskStats();
 const assigneeCatalog = useAssignees();
+const areaCatalog = useAreas();
 const {
   tasks,
   pagination,
@@ -29,6 +31,8 @@ const {
   updatingTaskId,
   reload,
   setStatus,
+  setArea,
+  clearFilters: clearTaskFilters,
   setPage,
   setPageSize,
   create,
@@ -36,6 +40,7 @@ const {
   changeStatus,
   replaceTask,
 } = useTasks();
+const taskStats = useTaskStats(undefined, () => filters.value.areaId);
 
 const formOpen = ref(false);
 const editing = ref<Task | null>(null);
@@ -54,19 +59,36 @@ const followUpIsFinal = computed(() =>
 );
 
 /** Estas reglas solo deciden qué se muestra; la API y la BD las vuelven a validar. */
-const isAdmin = computed(() => auth.isAdmin);
-const canEdit = (task: Task) => isAdmin.value || task.createdBy.id === auth.user?.id;
-const subtitle = computed(() =>
-  isAdmin.value
-    ? 'Gestiona, asigna y da seguimiento a las tareas de todo el equipo.'
-    : 'Tus tareas: las que tienes asignadas y las que creaste.',
+const formAbilities = computed(() => ({
+  assign: auth.can('TASKS_ASSIGN'),
+  chooseArea: auth.can('TASKS_VIEW_ALL'),
+}));
+const canEdit = (task: Task) => auth.can('TASKS_EDIT_ANY') || task.createdBy.id === auth.user?.id;
+const subtitle = computed(() => {
+  if (auth.can('TASKS_VIEW_ALL'))
+    return 'Gestiona, asigna y da seguimiento a las tareas de todas las áreas.';
+  const area = auth.user?.area?.name;
+  if (auth.can('TASKS_VIEW_AREA') && area)
+    return `Las tareas del área ${area}, además de las tuyas.`;
+  return 'Tus tareas: las que tienes asignadas y las que creaste.';
+});
+
+/** El filtro por área tiene sentido para quien ve más de un área. */
+const showAreaFilter = computed(() => auth.can('TASKS_VIEW_ALL'));
+const areaFilterItems = computed(() =>
+  areaCatalog.areas.value.map((area) => ({ value: area.id, title: area.name })),
 );
 
 onMounted(() => {
   void statusCatalog.load();
   void taskStats.load();
-  if (isAdmin.value) void assigneeCatalog.load();
+  void areaCatalog.load();
+  if (formAbilities.value.assign) void assigneeCatalog.load();
 });
+
+function onAreaFilter(areaId: number | null): void {
+  void setArea(areaId).then(() => taskStats.load());
+}
 
 function openForm(task: Task | null): void {
   editing.value = task;
@@ -85,6 +107,10 @@ function onNoteAdded(task: Task): void {
 }
 
 /** Listado e indicadores se actualizan juntos para que nunca muestren datos distintos. */
+function clearFilters(): void {
+  void clearTaskFilters().then(() => taskStats.load());
+}
+
 function refreshAll(): void {
   void reload();
   void taskStats.load();
@@ -104,7 +130,7 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
     void taskStats.load();
   } catch (caught) {
     notifier.error(toApiError(caught).message);
-    // Puede que otro agente la haya cambiado antes: se recarga para mostrar el estado real.
+    // Puede que otra persona la haya cambiado antes: se recarga para mostrar el estado real.
     refreshAll();
   }
 }
@@ -144,6 +170,23 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
           :model-value="filters.status"
           @update:model-value="setStatus"
         />
+        <v-select
+          v-if="showAreaFilter"
+          :model-value="filters.areaId"
+          :items="areaFilterItems"
+          item-value="value"
+          item-title="title"
+          label="Área"
+          placeholder="Todas las áreas"
+          persistent-placeholder
+          :prepend-inner-icon="mdiOfficeBuildingOutline"
+          density="compact"
+          variant="outlined"
+          hide-details
+          clearable
+          class="area-filter"
+          @update:model-value="onAreaFilter"
+        />
         <v-btn
           :icon="mdiRefresh"
           variant="text"
@@ -167,7 +210,7 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
         :page="filters.page"
         :page-size="filters.pageSize"
         :loading="loading"
-        :filtered="filters.status !== null"
+        :filtered="filters.status !== null || filters.areaId !== null"
         :updating-task-id="updatingTaskId"
         :transitions-for="statusCatalog.transitionsFor"
         :can-edit="canEdit"
@@ -177,7 +220,7 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
         @edit="openForm"
         @open="openFollowUp"
         @create="openForm(null)"
-        @clear-filter="setStatus(null)"
+        @clear-filter="clearFilters"
       />
     </v-card>
 
@@ -185,8 +228,10 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
       v-model="formOpen"
       :task="editing"
       :actions="formActions"
-      :can-assign="isAdmin"
+      :abilities="formAbilities"
       :assignees="assigneeCatalog.assignees.value"
+      :areas="areaCatalog.areas.value"
+      :user-area="auth.user?.area ?? null"
       @saved="onSaved"
     />
 
@@ -219,11 +264,17 @@ async function onChangeStatus(task: Task, status: string): Promise<void> {
 }
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid rgb(var(--v-border-color), var(--v-border-opacity));
+}
+.area-filter {
+  flex: 0 1 240px;
+  min-width: 180px;
+  margin-inline-start: auto;
 }
 .alert-body {
   display: flex;
